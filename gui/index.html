@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consensus Visualizer - Raft vs PBFT</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .node { transition: all 0.3s ease; }
+        .node-dead { background-color: #ef4444 !important; opacity: 0.5; }
+        .node-leader { box-shadow: 0 0 15px #22c55e; border-color: #22c55e !important; }
+        .node-byzantine { background-color: #f97316 !important; border-style: dashed; }
+    </style>
+</head>
+<body class="p-8">
+
+    <header class="mb-8 text-center">
+        <h1 class="text-4xl font-bold text-blue-400">Consensus Visualizer</h1>
+        <p class="text-slate-400 mt-2">Distributed Systems Project 2026 - Raft vs PBFT</p>
+        <div id="ws-status" class="mt-4 inline-block px-4 py-1 rounded-full bg-red-900 text-red-200 text-sm">
+            🔴 Déconnecté du serveur
+        </div>
+    </header>
+
+    <div class="grid grid-cols-2 gap-8">
+        <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
+            <h2 class="text-2xl font-semibold mb-6 flex justify-between">
+                <span>Raft Cluster (CFT)</span>
+                <button onclick="sendRequest('raft')" class="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded">Envoyer Requête</button>
+            </h2>
+            <div id="raft-nodes" class="flex justify-center gap-4 flex-wrap mb-8">
+                </div>
+            
+            <div class="border-t border-slate-700 pt-4">
+                <h3 class="text-slate-400 text-sm font-bold mb-2">💥 Chaos Engine (Raft)</h3>
+                <div class="flex gap-2">
+                    <button onclick="chaosAction('crash', 'raft', 1)" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-500">Tuer Nœud 1</button>
+                    <button onclick="chaosAction('revive', 'raft', 1)" class="bg-green-600 px-3 py-1 rounded text-sm hover:bg-green-500">Ressusciter Nœud 1</button>
+                    <button onclick="chaosAction('leader_attack', 'raft')" class="bg-purple-600 px-3 py-1 rounded text-sm hover:bg-purple-500">Tuer le Leader</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
+            <h2 class="text-2xl font-semibold mb-6 flex justify-between">
+                <span>PBFT Cluster (BFT)</span>
+                <button onclick="sendRequest('pbft')" class="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded">Envoyer Requête</button>
+            </h2>
+            <div id="pbft-nodes" class="flex justify-center gap-4 flex-wrap mb-8">
+                </div>
+
+            <div class="border-t border-slate-700 pt-4">
+                <h3 class="text-slate-400 text-sm font-bold mb-2">💥 Chaos Engine (PBFT)</h3>
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="chaosAction('crash', 'pbft', 0)" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-500">Tuer Primary (0)</button>
+                    <button onclick="chaosAction('revive', 'pbft', 0)" class="bg-green-600 px-3 py-1 rounded text-sm hover:bg-green-500">Ressusciter Primary</button>
+                    <button onclick="chaosAction('byzantine', 'pbft', 1)" class="bg-orange-600 px-3 py-1 rounded text-sm hover:bg-orange-500">Rendre Nœud 1 Byzantin 👹</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-8 bg-slate-900 p-4 rounded-xl border border-slate-800 h-48 overflow-y-auto font-mono text-sm" id="logs">
+        <div class="text-slate-500">En attente des événements du cluster...</div>
+    </div>
+
+    <script>
+        let ws;
+        const logsEl = document.getElementById('logs');
+
+        // Initialisation de l'affichage (5 Raft, 4 PBFT)
+        function initNodes(target, count, colorClass) {
+            const container = document.getElementById(`${target}-nodes`);
+            container.innerHTML = '';
+            for(let i=0; i<count; i++) {
+                container.innerHTML += `
+                    <div id="node-${target}-${i}" class="node w-16 h-16 rounded-full border-4 ${colorClass} flex items-center justify-center font-bold text-xl relative">
+                        ${i}
+                        <div id="status-${target}-${i}" class="absolute -bottom-6 text-xs text-slate-400 w-24 text-center">Alive</div>
+                    </div>
+                `;
+            }
+        }
+
+        initNodes('raft', 5, 'border-blue-500 bg-blue-900/30');
+        initNodes('pbft', 4, 'border-purple-500 bg-purple-900/30');
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = () => {
+                const status = document.getElementById('ws-status');
+                status.textContent = '🟢 Connecté (Live)';
+                status.className = 'mt-4 inline-block px-4 py-1 rounded-full bg-green-900 text-green-200 text-sm';
+                logEvent('SYSTEM', 'Connecté au serveur WebSocket');
+                
+                // Demander l'état initial des clusters
+                ws.send(JSON.stringify({action: "get_status"}));
+            };
+
+            ws.onclose = () => {
+                const status = document.getElementById('ws-status');
+                status.textContent = '🔴 Déconnecté. Reconnexion...';
+                status.className = 'mt-4 inline-block px-4 py-1 rounded-full bg-red-900 text-red-200 text-sm';
+                setTimeout(connect, 2000);
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                
+                // Handling Initial Status
+                if (msg.status) {
+                    updateClusters(msg.status);
+                    return;
+                }
+
+                // Handling Events
+                if(msg.type && msg.type !== "ping") {
+                    handleEvent(msg.type, msg.data);
+                }
+            };
+        }
+
+        function updateClusters(status) {
+            // Mettre à jour l'UI avec l'état complet reçu du serveur
+            status.raft.forEach(n => {
+                const el = document.getElementById(`node-raft-${n.node_id}`);
+                const statEl = document.getElementById(`status-raft-${n.node_id}`);
+                
+                el.className = `node w-16 h-16 rounded-full border-4 border-blue-500 bg-blue-900/30 flex items-center justify-center font-bold text-xl relative`;
+                
+                if(n.state === "dead") el.classList.add("node-dead");
+                if(n.state === "leader") el.classList.add("node-leader");
+                statEl.innerText = n.state;
+            });
+            
+            status.pbft.forEach(n => {
+                const el = document.getElementById(`node-pbft-${n.node_id}`);
+                const statEl = document.getElementById(`status-pbft-${n.node_id}`);
+                
+                el.className = `node w-16 h-16 rounded-full border-4 border-purple-500 bg-purple-900/30 flex items-center justify-center font-bold text-xl relative`;
+                
+                if(n.state === "dead") el.classList.add("node-dead");
+                if(n.is_primary && n.state !== "dead") el.classList.add("node-leader");
+                if(n.is_byzantine) el.classList.add("node-byzantine");
+                
+                statEl.innerText = n.state === "view_change" ? "view-change" : (n.is_primary ? "primary" : "replica");
+            });
+        }
+
+        function handleEvent(type, data) {
+            logEvent(type.toUpperCase(), JSON.stringify(data));
+            
+            const target = data.target || data.algo;
+            if(!target) return;
+
+            const nodeId = data.node_id;
+            const el = document.getElementById(`node-${target}-${nodeId}`);
+            if(!el) return;
+
+            if (type === "node_crashed") {
+                el.classList.add("node-dead");
+                document.getElementById(`status-${target}-${nodeId}`).innerText = "dead";
+            }
+            if (type === "node_revived") {
+                el.classList.remove("node-dead");
+                document.getElementById(`status-${target}-${nodeId}`).innerText = "alive";
+            }
+            if (type === "node_byzantine") {
+                el.classList.add("node-byzantine");
+                document.getElementById(`status-${target}-${nodeId}`).innerText = "BYZANTINE";
+            }
+            if (type === "new_view" || type === "leader_elected") {
+                // Demander une mise à jour complète de l'UI pour redessiner les leaders
+                ws.send(JSON.stringify({action: "get_status"}));
+            }
+        }
+
+        function logEvent(tag, message) {
+            const time = new Date().toLocaleTimeString();
+            logsEl.innerHTML = `<div class="mb-1"><span class="text-slate-500">[${time}]</span> <span class="font-bold text-blue-300">${tag}</span> <span class="text-slate-300">${message}</span></div>` + logsEl.innerHTML;
+        }
+
+        // GUI Interactions vers le serveur Python
+        function chaosAction(action, target, nodeId) {
+            if(!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ action: action, target: target, node_id: nodeId }));
+        }
+
+        function sendRequest(target) {
+            if(!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ action: "client_request", target: target, op: "set", value: Math.floor(Math.random() * 1000) }));
+        }
+
+        connect();
+    </script>
+</body>
+</html>
