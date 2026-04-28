@@ -109,9 +109,9 @@ class ChaosEngine:
         await node.stop()
         self._record(ChaosEvent(
             timestamp=time.time(), action="crash", target=target,
-            node_ids=[node_id], description=f"💀 Node {target}[{node_id}] crashed"
+            node_ids=[node_id], description=f" Node {target}[{node_id}] crashed"
         ))
-        logger.warning(f"[Chaos] 💀 {target}[{node_id}] CRASHED")
+        logger.warning(f"[Chaos] {target}[{node_id}] CRASHED")
         await self._emit("node_crashed", {"target": target, "node_id": node_id})
 
     async def revive_node(self, target: str, node_id: int):
@@ -122,9 +122,9 @@ class ChaosEngine:
         await node.revive()
         self._record(ChaosEvent(
             timestamp=time.time(), action="revive", target=target,
-            node_ids=[node_id], description=f"✅ Node {target}[{node_id}] revived"
+            node_ids=[node_id], description=f" Node {target}[{node_id}] revived"
         ))
-        logger.info(f"[Chaos] ✅ {target}[{node_id}] REVIVED")
+        logger.info(f"[Chaos] {target}[{node_id}] REVIVED")
         await self._emit("node_revived", {"target": target, "node_id": node_id})
 
     async def leader_attack(self, target: str = "raft"):
@@ -133,9 +133,9 @@ class ChaosEngine:
             leader = self._find_raft_leader()
             if leader:
                 await self.crash_node("raft", leader.node_id)
-                logger.warning(f"[Chaos] 🎯 Leader {leader.node_id} assassinated!")
+                logger.warning(f"[Chaos] Leader {leader.node_id} assassinated!")
             else:
-                logger.warning("[Chaos] 🎯 No leader to attack")
+                logger.warning("[Chaos] No leader to attack")
         elif target == "pbft":
             primary = self._find_pbft_primary()
             if primary:
@@ -168,9 +168,9 @@ class ChaosEngine:
         self._record(ChaosEvent(
             timestamp=time.time(), action="partition", target=target,
             node_ids=group1 + group2,
-            description=f"🔌 Partition {target}: {group1} ↔ {group2} ISOLATED"
+            description=f" Partition {target}: {group1} ↔ {group2} ISOLATED"
         ))
-        logger.warning(f"[Chaos] 🔌 Network partition: {group1} vs {group2}")
+        logger.warning(f"[Chaos] Network partition: {group1} vs {group2}")
         await self._emit("network_partitioned", {
             "target": target, "group1": group1, "group2": group2
         })
@@ -186,7 +186,7 @@ class ChaosEngine:
             timestamp=time.time(), action="heal", target=target,
             node_ids=[], description=f"💊 Partition healed on {target}"
         ))
-        logger.info(f"[Chaos] 💊 Partition healed on {target}")
+        logger.info(f"[Chaos] Partition healed on {target}")
         await self._emit("partition_healed", {"target": target})
 
     async def add_delay(self, target: str, node_id: int, delay_ms: float):
@@ -224,7 +224,7 @@ class ChaosEngine:
                 timestamp=time.time(), action="set_byzantine", target="pbft",
                 node_ids=[node_id], description=f"👹 PBFT[{node_id}] turned BYZANTINE"
             ))
-            logger.warning(f"[Chaos] 👹 PBFT[{node_id}] is now BYZANTINE")
+            logger.warning(f"[Chaos] PBFT[{node_id}] is now BYZANTINE")
             await self._emit("node_byzantine", {"node_id": node_id})
 
     async def cure_byzantine(self, node_id: int):
@@ -239,7 +239,7 @@ class ChaosEngine:
         Envoie une charge maximale pendant N secondes.
         Retourne les métriques de performance.
         """
-        logger.info(f"[Chaos] 🔥 Stress test on {target} — {requests_per_second} rps for {duration_s}s")
+        logger.info(f"[Chaos] Stress test on {target} — {requests_per_second} rps for {duration_s}s")
         await self._emit("stress_start", {"target": target, "rps": requests_per_second})
 
         start = time.time()
@@ -274,7 +274,7 @@ class ChaosEngine:
             "avg_latency_ms": round(avg_lat, 2),
             "p95_latency_ms": round(sorted(latencies)[int(len(latencies)*0.95)] if latencies else 0, 2),
         }
-        logger.info(f"[Chaos] 📊 Stress results: {stats}")
+        logger.info(f"[Chaos]  Stress results: {stats}")
         await self._emit("stress_done", stats)
         return stats
 
@@ -294,7 +294,7 @@ class ChaosEngine:
             logger.error(f"[Chaos] Unknown scenario: {name}")
             return
 
-        logger.info(f"[Chaos] 🎬 Running scenario: '{name}'")
+        logger.info(f"[Chaos]  Running scenario: '{name}'")
         await self._emit("scenario_start", {"name": name})
 
         start = time.time()
@@ -339,7 +339,7 @@ class ChaosEngine:
                     result = await node.client_request(step.get("op", "set"), step.get("val"))
                     logger.info(f"[Scenario] Request result: {result}")
 
-        logger.info(f"[Chaos] 🎬 Scenario '{name}' completed")
+        logger.info(f"[Chaos] Scenario '{name}' completed")
         await self._emit("scenario_done", {"name": name})
 
     # ─────────────────────────────────────────────

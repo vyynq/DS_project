@@ -166,7 +166,7 @@ class PBFTNode:
             if msg.sequence not in self.committed_requests:
                 req = self._find_request(key)
                 self.committed_requests[msg.sequence] = req or {"status": "ok"}
-                logger.info(f"[PBFT {self.node_id}] ✅ COMMITTED seq={msg.sequence}")
+                logger.info(f"[PBFT {self.node_id}] COMMITTED seq={msg.sequence}")
 
     def _expected_digest(self, key: tuple) -> Optional[str]:
         return self.pre_prepare_log.get(key)

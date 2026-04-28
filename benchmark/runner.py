@@ -101,7 +101,7 @@ class BenchmarkRunner:
         """
         Test de référence : performances sans aucune panne.
         """
-        logger.info("🔵 [Baseline] Starting...")
+        logger.info(" [Baseline] Starting...")
 
         for algo_name, cluster in [("raft", self.raft), ("pbft", self.pbft)]:
             result = await self._run_load(algo_name, cluster, num_requests, rps)
@@ -113,7 +113,7 @@ class BenchmarkRunner:
         """
         Mesure les performances avec f=0, 1, 2 pannes simultanées.
         """
-        logger.info("🔴 [Fault Tolerance] Starting...")
+        logger.info(" [Fault Tolerance] Starting...")
 
         # Raft : peut tolérer (n-1)//2 pannes
         for f in range(3):
@@ -167,7 +167,7 @@ class BenchmarkRunner:
         Mesure le temps de recovery après une panne du leader/primary.
         C'est une métrique clé souvent absente des implémentations naïves.
         """
-        logger.info("⏱️  [Recovery Time] Starting...")
+        logger.info("  [Recovery Time] Starting...")
 
         # Raft recovery
         leader = self.chaos._find_raft_leader()
@@ -230,7 +230,7 @@ class BenchmarkRunner:
         Courbe throughput en fonction du nombre de requêtes/s.
         Permet d'identifier le point de saturation.
         """
-        logger.info("📈 [Throughput vs Load] Starting...")
+        logger.info(" [Throughput vs Load] Starting...")
 
         for rps in [5, 10, 20, 50, 100]:
             for algo_name, cluster in [("raft", self.raft), ("pbft", self.pbft)]:
@@ -244,7 +244,7 @@ class BenchmarkRunner:
         Mesure l'impact des nœuds byzantins sur PBFT.
         Compare : 0 byzantin, 1 byzantin (toléré), 2 byzantins (limite dépassée).
         """
-        logger.info("👹 [Byzantine Impact] Starting...")
+        logger.info(" [Byzantine Impact] Starting...")
 
         pbft_nodes = list(self.pbft.values())
 
@@ -376,7 +376,7 @@ class BenchmarkRunner:
                 writer.writeheader()
                 for row in dict_results:
                     writer.writerow(row)
-            logger.info(f"📁 Results exported to {global_path}")
+            logger.info(f" Results exported to {global_path}")
         except Exception as e:
             logger.error(f"Failed to export CSV: {e}")
             
