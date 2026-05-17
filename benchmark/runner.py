@@ -1,396 +1,379 @@
 """
-BENCHMARK RUNNER 📊
-===================
-Mesure automatisée des performances de Raft et PBFT
-sous différentes conditions. Génère des données CSV
-pour SageMath.
+CHAOS ENGINE
+============
+Injecteur de pannes controle et reproductible.
 
-Tests disponibles :
-  - baseline          : performances normales
-  - fault_tolerance   : performances avec f pannes
-  - recovery_time     : temps de recovery après une panne
-  - latency_vs_nodes  : latence en fonction du nombre de nœuds
-  - throughput_vs_load: throughput en fonction de la charge
-  - byzantine_impact  : impact des nœuds byzantins sur PBFT
+Scenarios supportes :
+  - crash_node        : tue un noeud proprement
+  - revive_node       : ressuscite un noeud
+  - network_partition : isole des groupes de noeuds
+  - heal_partition    : repare la partition
+  - add_delay         : ajoute de la latence reseau
+  - set_byzantine     : rend un noeud PBFT malveillant
+  - leader_attack     : tue le leader Raft
+  - stress_test       : charge maximale pendant N secondes
+  - run_scenario      : execute un scenario scriptable
 """
 
 import asyncio
-import csv
-import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
+from typing import Union
+
+from raft.node import RaftNode, NodeState
+from pbft.node import PBFTNode, PBFTNodeState
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class BenchmarkResult:
-    test_name: str
-    algo: str
-    params: dict
-    throughput_rps: float
-    avg_latency_ms: float
-    p50_latency_ms: float
-    p95_latency_ms: float
-    p99_latency_ms: float
-    error_rate: float
-    duration_s: float
-    timestamp: float = field(default_factory=time.time)
-
-    def to_dict(self) -> dict:
-        return {
-            "test": self.test_name,
-            "algo": self.algo,
-            **self.params,
-            "throughput_rps": round(self.throughput_rps, 2),
-            "avg_latency_ms": round(self.avg_latency_ms, 2),
-            "p50_latency_ms": round(self.p50_latency_ms, 2),
-            "p95_latency_ms": round(self.p95_latency_ms, 2),
-            "p99_latency_ms": round(self.p99_latency_ms, 2),
-            "error_rate": round(self.error_rate, 4),
-        }
+class ChaosEvent:
+    timestamp:   float
+    action:      str
+    target:      str        # "raft" | "pbft" | "all"
+    node_ids:    list
+    params:      dict = field(default_factory=dict)
+    description: str = ""
 
 
-class BenchmarkRunner:
+class ChaosEngine:
     """
-    Exécute tous les benchmarks et exporte les résultats en CSV.
+    Moteur de chaos — injecte des pannes de facon scriptee et reproductible.
 
     Usage:
-        runner = BenchmarkRunner(raft_cluster, pbft_cluster, chaos_engine)
-        await runner.run_all()
-        runner.export_csv("results/")
+        chaos = ChaosEngine(raft_nodes, pbft_nodes, event_bus)
+        await chaos.crash_node("raft", 1)
+        await chaos.network_partition("raft", [0, 1], [2, 3, 4])
+        await chaos.run_scenario("leader_failure")
     """
 
-    def __init__(self, raft_cluster, pbft_cluster, chaos_engine, output_dir="analysis"):
-        self.raft = raft_cluster
-        self.pbft = pbft_cluster
-        self.chaos = chaos_engine
-        self.output_dir = output_dir
-        self.results: list[BenchmarkResult] = []
-        os.makedirs(output_dir, exist_ok=True)
+    BUILT_IN_SCENARIOS = {
+        "leader_failure": [
+            {"t": 0.0, "action": "log",            "msg": "=== Scenario : Leader Failure ==="},
+            {"t": 1.0, "action": "leader_attack",   "target": "raft"},
+            {"t": 4.0, "action": "log",             "msg": "Nouveau leader elu, verification..."},
+            {"t": 5.0, "action": "client_request",  "target": "raft", "op": "set", "val": 42},
+        ],
+        "network_partition": [
+            {"t": 0.0, "action": "log",             "msg": "=== Scenario : Network Partition ==="},
+            {"t": 1.0, "action": "partition",        "target": "raft", "g1": [0, 1], "g2": [2, 3, 4]},
+            {"t": 5.0, "action": "heal",             "target": "raft"},
+            {"t": 6.0, "action": "client_request",   "target": "raft", "op": "set", "val": 99},
+        ],
+        "byzantine_attack": [
+            {"t": 0.0, "action": "log",             "msg": "=== Scenario : Byzantine Attack ==="},
+            {"t": 0.5, "action": "set_byzantine",    "target": "pbft", "node_id": 1},
+            {"t": 1.0, "action": "client_request",   "target": "pbft", "op": "transfer", "val": 1000},
+            {"t": 3.0, "action": "client_request",   "target": "pbft", "op": "transfer", "val": 500},
+        ],
+        "high_load": [
+            {"t": 0.0, "action": "log",             "msg": "=== Scenario : High Load ==="},
+            {"t": 0.0, "action": "stress",           "target": "raft", "duration": 5, "rps": 50},
+            {"t": 0.0, "action": "stress",           "target": "pbft", "duration": 5, "rps": 20},
+        ],
+        "cascading_failures": [
+            {"t": 0.0, "action": "log",             "msg": "=== Scenario : Cascading Failures ==="},
+            {"t": 1.0, "action": "crash",            "target": "raft", "node_id": 2},
+            {"t": 2.0, "action": "crash",            "target": "raft", "node_id": 3},
+            {"t": 4.0, "action": "revive",           "target": "raft", "node_id": 2},
+            {"t": 5.0, "action": "revive",           "target": "raft", "node_id": 3},
+        ],
+    }
+
+    def __init__(self, raft_nodes: list, pbft_nodes: list, event_bus=None):
+        self.raft_nodes  = {n.node_id: n for n in raft_nodes}
+        self.pbft_nodes  = {n.node_id: n for n in pbft_nodes}
+        self.event_bus   = event_bus
+        self.history: list[ChaosEvent] = []
+        self._partitions: dict = {"raft": [], "pbft": []}
 
     # ─────────────────────────────────────────────
-    # TESTS
+    # INDIVIDUAL ACTIONS
     # ─────────────────────────────────────────────
 
-    async def run_all(self):
-        """Exécute tous les benchmarks dans l'ordre."""
-        logger.info("📊 Starting full benchmark suite...")
+    async def crash_node(self, target: str, node_id: int):
+        node = self._get_node(target, node_id)
+        if not node:
+            return
+        await node.stop()
+        self._record(ChaosEvent(
+            timestamp=time.time(), action="crash", target=target,
+            node_ids=[node_id],
+            description=f"[CRASH] Node {target}[{node_id}] stopped"
+        ))
+        logger.warning(f"[Chaos] {target}[{node_id}] CRASHED")
+        await self._emit("node_crashed", {"target": target, "node_id": node_id})
 
-        await self.test_baseline()
-        await asyncio.sleep(0.5)
+    async def revive_node(self, target: str, node_id: int):
+        node = self._get_node(target, node_id)
+        if not node:
+            return
+        await node.revive()
+        self._record(ChaosEvent(
+            timestamp=time.time(), action="revive", target=target,
+            node_ids=[node_id],
+            description=f"[REVIVE] Node {target}[{node_id}] restarted"
+        ))
+        logger.info(f"[Chaos] {target}[{node_id}] REVIVED")
+        await self._emit("node_revived", {"target": target, "node_id": node_id})
 
-        await self.test_fault_tolerance()
-        await asyncio.sleep(0.5)
+    async def leader_attack(self, target: str = "raft"):
+        if target == "raft":
+            leader = self._find_raft_leader()
+            if leader:
+                await self.crash_node("raft", leader.node_id)
+                logger.warning(f"[Chaos] Leader {leader.node_id} killed")
+            else:
+                logger.warning("[Chaos] No leader to attack")
+        elif target == "pbft":
+            primary = self._find_pbft_primary()
+            if primary:
+                await self.crash_node("pbft", primary.node_id)
 
-        await self.test_recovery_time()
-        await asyncio.sleep(0.5)
+    async def network_partition(self, target: str,
+                                group1: list, group2: list):
+        nodes = self.raft_nodes if target == "raft" else self.pbft_nodes
+        self._partitions[target] = [(group1, group2)]
 
-        await self.test_throughput_vs_load()
-        await asyncio.sleep(0.5)
+        for nid in group1:
+            node = nodes.get(nid)
+            if node:
+                node._partitioned_from = set(group2)
 
-        await self.test_byzantine_impact()
+        for nid in group2:
+            node = nodes.get(nid)
+            if node:
+                node._partitioned_from = set(group1)
 
-        self.export_csv()
-        logger.info("📊 Benchmark suite complete. Results exported.")
-        return self.results
+        await self._apply_partition_filter(target, group1, group2)
 
-    async def test_baseline(self, num_requests: int = 100, rps: int = 20):
-        """
-        Test de référence : performances sans aucune panne.
-        """
-        logger.info(" [Baseline] Starting...")
+        self._record(ChaosEvent(
+            timestamp=time.time(), action="partition", target=target,
+            node_ids=group1 + group2,
+            description=f"[PARTITION] {target}: {group1} isolated from {group2}"
+        ))
+        logger.warning(f"[Chaos] Network partition: {group1} vs {group2}")
+        await self._emit("network_partitioned", {
+            "target": target, "group1": group1, "group2": group2
+        })
 
-        for algo_name, cluster in [("raft", self.raft), ("pbft", self.pbft)]:
-            result = await self._run_load(algo_name, cluster, num_requests, rps)
-            br = self._make_result("baseline", algo_name, {}, result)
-            self.results.append(br)
-            logger.info(f"  {algo_name}: {br.throughput_rps} rps, {br.avg_latency_ms}ms avg")
+    async def heal_partition(self, target: str):
+        nodes = self.raft_nodes if target == "raft" else self.pbft_nodes
+        for node in nodes.values():
+            node._partitioned_from = set()
+        self._partitions[target] = []
 
-    async def test_fault_tolerance(self):
-        """
-        Mesure les performances avec f=0, 1, 2 pannes simultanées.
-        """
-        logger.info(" [Fault Tolerance] Starting...")
+        self._record(ChaosEvent(
+            timestamp=time.time(), action="heal", target=target,
+            node_ids=[],
+            description=f"[HEAL] Partition repaired on {target}"
+        ))
+        logger.info(f"[Chaos] Partition healed on {target}")
+        await self._emit("partition_healed", {"target": target})
 
-        # Raft : peut tolérer (n-1)//2 pannes
-        for f in range(3):
-            # Crasher f nœuds (pas le leader)
-            crashed = []
-            raft_nodes = list(self.raft.values())
-            leader = self.chaos._find_raft_leader()
+    async def add_delay(self, target: str, node_id: int, delay_ms: float):
+        node = self._get_node(target, node_id)
+        if node:
+            node.chaos_delay_ms = delay_ms
+            self._record(ChaosEvent(
+                timestamp=time.time(), action="delay", target=target,
+                node_ids=[node_id], params={"delay_ms": delay_ms},
+                description=f"[DELAY] {target}[{node_id}] = {delay_ms}ms"
+            ))
+            logger.info(f"[Chaos] {target}[{node_id}] delay = {delay_ms}ms")
+            await self._emit("delay_added", {
+                "target": target, "node_id": node_id, "delay_ms": delay_ms
+            })
 
-            for node in raft_nodes:
-                if len(crashed) >= f:
-                    break
-                if node != leader:
-                    await self.chaos.crash_node("raft", node.node_id)
-                    crashed.append(node.node_id)
+    async def set_drop_rate(self, target: str, node_id: int, rate: float):
+        node = self._get_node(target, node_id)
+        if node:
+            node.chaos_drop_rate = rate
+            await self._emit("drop_rate_set", {
+                "target": target, "node_id": node_id, "rate": rate
+            })
 
-            await asyncio.sleep(0.3)
-            result = await self._run_load("raft", self.raft, 50, 10)
-            br = self._make_result("fault_tolerance", "raft", {"f": f}, result)
-            self.results.append(br)
-            logger.info(f"  Raft f={f}: {br.throughput_rps} rps, error_rate={br.error_rate}")
+    async def set_byzantine(self, node_id: int):
+        node = self.pbft_nodes.get(node_id)
+        if node:
+            node.is_byzantine = True
+            node.state        = PBFTNodeState.BYZANTINE
+            self._record(ChaosEvent(
+                timestamp=time.time(), action="set_byzantine", target="pbft",
+                node_ids=[node_id],
+                description=f"[BYZANTINE] PBFT[{node_id}] turned malicious"
+            ))
+            logger.warning(f"[Chaos] PBFT[{node_id}] is now BYZANTINE")
+            await self._emit("node_byzantine", {"node_id": node_id})
 
-            # Revive
-            for nid in crashed:
-                await self.chaos.revive_node("raft", nid)
-            await asyncio.sleep(0.5)
+    async def cure_byzantine(self, node_id: int):
+        node = self.pbft_nodes.get(node_id)
+        if node:
+            node.is_byzantine = False
+            node.state        = PBFTNodeState.NORMAL
 
-        # PBFT : peut tolérer (n-1)//3 pannes
-        for f in range(2):
-            crashed = []
-            pbft_nodes = list(self.pbft.values())
-            primary = self.chaos._find_pbft_primary()
+    async def stress_test(self, target: str, duration_s: float,
+                          requests_per_second: int = 20):
+        logger.info(
+            f"[Chaos] Stress test on {target} — "
+            f"{requests_per_second} rps for {duration_s}s"
+        )
+        await self._emit("stress_start", {"target": target, "rps": requests_per_second})
 
-            for node in pbft_nodes:
-                if len(crashed) >= f:
-                    break
-                if node != primary:
-                    await self.chaos.crash_node("pbft", node.node_id)
-                    crashed.append(node.node_id)
+        start    = time.time()
+        sent     = 0
+        errors   = 0
+        latencies = []
+        interval = 1.0 / requests_per_second
+        deadline = start + duration_s
 
-            await asyncio.sleep(0.3)
-            result = await self._run_load("pbft", self.pbft, 30, 5)
-            br = self._make_result("fault_tolerance", "pbft", {"f": f}, result)
-            self.results.append(br)
+        while time.time() < deadline:
+            node = self._get_leader_node(target)
+            if node:
+                t0     = time.time()
+                result = await node.client_request("set", sent)
+                latency = (time.time() - t0) * 1000
+                if result.get("success"):
+                    latencies.append(latency)
+                else:
+                    errors += 1
+                sent += 1
+            await asyncio.sleep(interval)
 
-            for nid in crashed:
-                await self.chaos.revive_node("pbft", nid)
-            await asyncio.sleep(0.5)
+        avg_lat   = sum(latencies) / len(latencies) if latencies else 0
+        throughput = sent / duration_s
 
-    async def test_recovery_time(self):
-        """
-        Mesure le temps de recovery après une panne du leader/primary.
-        C'est une métrique clé souvent absente des implémentations naïves.
-        """
-        logger.info("  [Recovery Time] Starting...")
+        stats = {
+            "target":         target,
+            "sent":           sent,
+            "errors":         errors,
+            "throughput_rps": round(throughput, 2),
+            "avg_latency_ms": round(avg_lat, 2),
+            "p95_latency_ms": round(
+                sorted(latencies)[int(len(latencies) * 0.95)]
+                if latencies else 0, 2
+            ),
+        }
+        logger.info(f"[Chaos] Stress results: {stats}")
+        await self._emit("stress_done", stats)
+        return stats
 
-        # Raft recovery
-        leader = self.chaos._find_raft_leader()
-        if leader:
-            kill_time = time.time()
-            await self.chaos.crash_node("raft", leader.node_id)
+    # ─────────────────────────────────────────────
+    # SCRIPTABLE SCENARIOS
+    # ─────────────────────────────────────────────
 
-            # Attendre qu'un nouveau leader soit élu
-            recovery_time = None
-            for _ in range(100):
-                await asyncio.sleep(0.05)
-                new_leader = self.chaos._find_raft_leader()
-                if new_leader and new_leader.node_id != leader.node_id:
-                    recovery_time = (time.time() - kill_time) * 1000
-                    break
+    async def run_scenario(self, name: str):
+        script = self.BUILT_IN_SCENARIOS.get(name)
+        if not script:
+            logger.error(f"[Chaos] Unknown scenario: {name}")
+            return
 
-            br = BenchmarkResult(
-                test_name="recovery_time", algo="raft",
-                params={"event": "leader_crash"},
-                throughput_rps=0,
-                avg_latency_ms=recovery_time or 5000,
-                p50_latency_ms=0, p95_latency_ms=0, p99_latency_ms=0,
-                error_rate=0, duration_s=recovery_time / 1000 if recovery_time else 5
-            )
-            self.results.append(br)
-            logger.info(f"  Raft recovery: {recovery_time:.0f}ms")
-            await self.chaos.revive_node("raft", leader.node_id)
+        logger.info(f"[Chaos] Running scenario: '{name}'")
+        await self._emit("scenario_start", {"name": name})
 
-        # PBFT recovery (view-change)
-        primary = self.chaos._find_pbft_primary()
-        if primary:
-            kill_time = time.time()
-            await self.chaos.crash_node("pbft", primary.node_id)
+        start = time.time()
+        for step in script:
+            target_t = step["t"]
+            now      = time.time() - start
+            if target_t > now:
+                await asyncio.sleep(target_t - now)
 
-            recovery_time = None
-            old_view = primary.view
-            for _ in range(100):
-                await asyncio.sleep(0.1)
-                for node in self.pbft.values():
-                    if node.node_id != primary.node_id and node.view > old_view:
-                        recovery_time = (time.time() - kill_time) * 1000
-                        break
-                if recovery_time:
-                    break
+            action = step["action"]
 
-            br = BenchmarkResult(
-                test_name="recovery_time", algo="pbft",
-                params={"event": "primary_crash"},
-                throughput_rps=0,
-                avg_latency_ms=recovery_time or 5000,
-                p50_latency_ms=0, p95_latency_ms=0, p99_latency_ms=0,
-                error_rate=0, duration_s=recovery_time / 1000 if recovery_time else 5
-            )
-            self.results.append(br)
-            logger.info(f"  PBFT recovery (view-change): {recovery_time:.0f}ms")
-            await self.chaos.revive_node("pbft", primary.node_id)
+            if action == "log":
+                logger.info(f"[Scenario] {step['msg']}")
+            elif action == "crash":
+                await self.crash_node(step["target"], step["node_id"])
+            elif action == "revive":
+                await self.revive_node(step["target"], step["node_id"])
+            elif action == "leader_attack":
+                await self.leader_attack(step.get("target", "raft"))
+            elif action == "partition":
+                await self.network_partition(step["target"], step["g1"], step["g2"])
+            elif action == "heal":
+                await self.heal_partition(step["target"])
+            elif action == "set_byzantine":
+                await self.set_byzantine(step["node_id"])
+            elif action == "stress":
+                asyncio.create_task(
+                    self.stress_test(
+                        step["target"], step["duration"], step.get("rps", 20)
+                    )
+                )
+            elif action == "client_request":
+                node = self._get_leader_node(step.get("target", "raft"))
+                if node:
+                    result = await node.client_request(
+                        step.get("op", "set"), step.get("val")
+                    )
+                    logger.info(f"[Scenario] Request result: {result}")
 
-    async def test_throughput_vs_load(self):
-        """
-        Courbe throughput en fonction du nombre de requêtes/s.
-        Permet d'identifier le point de saturation.
-        """
-        logger.info(" [Throughput vs Load] Starting...")
-
-        for rps in [5, 10, 20, 50, 100]:
-            for algo_name, cluster in [("raft", self.raft), ("pbft", self.pbft)]:
-                result = await self._run_load(algo_name, cluster, rps * 3, rps)
-                br = self._make_result("throughput_vs_load", algo_name, {"target_rps": rps}, result)
-                self.results.append(br)
-                logger.info(f"  {algo_name} @ {rps} rps → actual {br.throughput_rps} rps")
-
-    async def test_byzantine_impact(self):
-        """
-        Mesure l'impact des nœuds byzantins sur PBFT.
-        Compare : 0 byzantin, 1 byzantin (toléré), 2 byzantins (limite dépassée).
-        """
-        logger.info(" [Byzantine Impact] Starting...")
-
-        pbft_nodes = list(self.pbft.values())
-
-        for nb_byz in [0, 1]:
-            # Activer nb_byz nœuds byzantins
-            byzantine_ids = []
-            primary_id = self.chaos._find_pbft_primary()
-
-            for node in pbft_nodes:
-                if len(byzantine_ids) >= nb_byz:
-                    break
-                if primary_id and node.node_id != primary_id.node_id:
-                    await self.chaos.set_byzantine(node.node_id)
-                    byzantine_ids.append(node.node_id)
-
-            await asyncio.sleep(0.2)
-            result = await self._run_load("pbft", self.pbft, 30, 5)
-            br = self._make_result("byzantine_impact", "pbft",
-                                   {"byzantine_nodes": nb_byz}, result)
-            self.results.append(br)
-            logger.info(f"  PBFT with {nb_byz} byzantine: {br.throughput_rps} rps, "
-                        f"errors={br.error_rate}")
-
-            # Guérir
-            for nid in byzantine_ids:
-                await self.chaos.cure_byzantine(nid)
-            await asyncio.sleep(0.3)
+        logger.info(f"[Chaos] Scenario '{name}' completed")
+        await self._emit("scenario_done", {"name": name})
 
     # ─────────────────────────────────────────────
     # HELPERS
     # ─────────────────────────────────────────────
 
-    async def _run_load(self, algo: str, cluster: dict, num_requests: int,
-                        rps: int) -> dict:
-        """Envoie num_requests à rps req/s. Retourne les stats."""
-        from raft.node import NodeState
-        from pbft.node import PBFTNodeState
+    def _get_node(self, target: str, node_id: int):
+        if target == "raft":
+            return self.raft_nodes.get(node_id)
+        elif target == "pbft":
+            return self.pbft_nodes.get(node_id)
+        return None
 
-        latencies = []
-        errors = 0
-        interval = 1.0 / rps
-        start = time.time()
+    def _get_leader_node(self, target: str):
+        if target == "raft":
+            return self._find_raft_leader()
+        elif target == "pbft":
+            return self._find_pbft_primary()
+        return None
 
-        for i in range(num_requests):
-            # Trouver le leader/primary
-            leader = None
-            if algo == "raft":
-                leader = self.chaos._find_raft_leader()
-            elif algo == "pbft":
-                leader = self.chaos._find_pbft_primary()
+    def _find_raft_leader(self) -> RaftNode | None:
+        for node in self.raft_nodes.values():
+            if node.state == NodeState.LEADER:
+                return node
+        return None
 
-            if not leader:
-                errors += 1
-                await asyncio.sleep(interval)
-                continue
+    def _find_pbft_primary(self) -> PBFTNode | None:
+        for node in self.pbft_nodes.values():
+            if node.is_primary() and node.state != PBFTNodeState.DEAD:
+                return node
+        return None
 
-            t0 = time.time()
-            result = await leader.client_request("set", i)
-            latency = (time.time() - t0) * 1000
+    async def _apply_partition_filter(self, target: str,
+                                      group1: list, group2: list):
+        import types
 
-            if result.get("success"):
-                latencies.append(latency)
-            else:
-                errors += 1
+        nodes  = self.raft_nodes if target == "raft" else self.pbft_nodes
+        g1_set = set(group1)
+        g2_set = set(group2)
 
-            await asyncio.sleep(max(0, interval - (time.time() - t0)))
+        async def partitioned_can_send(self_node, peer):
+            my_group   = g1_set if self_node.node_id in g1_set else g2_set
+            peer_group = g1_set if peer.node_id in g1_set else g2_set
+            if my_group != peer_group:
+                return False
+            return True
 
-        duration = time.time() - start
-        return {
-            "latencies": latencies,
-            "errors": errors,
-            "num_requests": num_requests,
-            "duration_s": duration,
-        }
+        for node in nodes.values():
+            node._can_send = types.MethodType(partitioned_can_send, node)
 
-    def _make_result(self, test: str, algo: str, params: dict, raw: dict) -> BenchmarkResult:
-        lats = sorted(raw["latencies"])
-        n = len(lats)
+    def _record(self, event: ChaosEvent):
+        self.history.append(event)
 
-        def percentile(p):
-            if not lats:
-                return 0
-            idx = int(n * p / 100)
-            return lats[min(idx, n - 1)]
+    async def _emit(self, event_type: str, data: dict):
+        if self.event_bus:
+            await self.event_bus.emit(event_type, {**data, "source": "chaos"})
 
-        total = raw["num_requests"]
-        errors = raw["errors"]
-        duration = raw["duration_s"]
-
-        return BenchmarkResult(
-            test_name=test, algo=algo, params=params,
-            throughput_rps=(total - errors) / duration if duration > 0 else 0,
-            avg_latency_ms=sum(lats) / n if lats else 0,
-            p50_latency_ms=percentile(50),
-            p95_latency_ms=percentile(95),
-            p99_latency_ms=percentile(99),
-            error_rate=errors / total if total > 0 else 0,
-            duration_s=duration
-        )
-
-    def export_csv(self, path="analysis"):
-        """Exporte les résultats au format CSV de manière robuste."""
-        import os
-        import csv
-        
-        # 1. Créer le dossier s'il n'existe pas
-        os.makedirs(path, exist_ok=True)
-        
-        if not self.results:
-            logger.warning("No results to export to CSV.")
-            return
-        
-        # 2. Déterminer dynamiquement tous les champs (fieldnames)
-        # On regarde tous les dictionnaires pour ne rater aucune clé (comme 'f')
-        all_keys = set()
-        dict_results = []
-        for r in self.results:
-            d = r.to_dict()
-            all_keys.update(d.keys())
-            dict_results.append(d)
-        
-        fieldnames = sorted(list(all_keys))
-        global_path = os.path.join(path, "results.csv")
-
-        # 3. Écriture du fichier global
-        try:
-            with open(global_path, "w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                for row in dict_results:
-                    writer.writerow(row)
-            logger.info(f" Results exported to {global_path}")
-        except Exception as e:
-            logger.error(f"Failed to export CSV: {e}")
-            
-        return global_path
-
-    def print_summary(self):
-        """Affiche un résumé lisible dans le terminal."""
-        print("\n" + "="*60)
-        print("BENCHMARK RESULTS SUMMARY")
-        print("="*60)
-        for r in self.results:
-            print(f"\n[{r.test_name}] {r.algo.upper()} | params={r.params}")
-            print(f"  Throughput : {r.throughput_rps:.1f} rps")
-            print(f"  Latency    : avg={r.avg_latency_ms:.1f}ms  "
-                  f"p95={r.p95_latency_ms:.1f}ms  p99={r.p99_latency_ms:.1f}ms")
-            print(f"  Error rate : {r.error_rate*100:.1f}%")
-        print("="*60 + "\n")
+    def get_history(self) -> list:
+        return [
+            {
+                "timestamp":   e.timestamp,
+                "action":      e.action,
+                "target":      e.target,
+                "description": e.description,
+            }
+            for e in self.history
+        ]

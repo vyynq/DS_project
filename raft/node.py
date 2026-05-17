@@ -1,7 +1,7 @@
 """
 RAFT NODE — Crash Fault Tolerant Consensus
 ==========================================
-Implémente le protocole Raft complet :
+Implemente le protocole Raft complet :
   - Leader election via randomized timeouts
   - Log replication
   - Safety (au plus 1 leader par term)
@@ -10,7 +10,6 @@ Implémente le protocole Raft complet :
 import asyncio
 import random
 import time
-import json
 import logging
 from enum import Enum
 from dataclasses import dataclass, field, asdict
@@ -20,10 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 class NodeState(Enum):
-    FOLLOWER = "follower"
+    FOLLOWER  = "follower"
     CANDIDATE = "candidate"
-    LEADER = "leader"
-    DEAD = "dead"
+    LEADER    = "leader"
+    DEAD      = "dead"
 
 
 @dataclass
@@ -31,7 +30,7 @@ class LogEntry:
     term: int
     index: int
     command: str
-    value: any = None
+    value: object = None
 
 
 @dataclass
@@ -51,12 +50,12 @@ class RaftMetrics:
 
 class RaftNode:
     """
-    Nœud Raft complet avec gestion des pannes et métriques.
+    Noeud Raft complet avec gestion des pannes et metriques.
 
-    Paramètres:
-        node_id     : identifiant unique du nœud (0, 1, 2, ...)
-        peers       : liste de tous les nœuds du cluster (RaftNode)
-        election_timeout_range : (min_ms, max_ms) pour le timeout aléatoire
+    Parametres:
+        node_id                : identifiant unique (0, 1, 2, ...)
+        peers                  : liste de tous les noeuds du cluster
+        election_timeout_range : (min_ms, max_ms) pour le timeout aleatoire
     """
 
     def __init__(self, node_id: int, peers: list = None,
@@ -70,27 +69,27 @@ class RaftNode:
         self.log: list[LogEntry] = []
 
         # Volatile state
-        self.commit_index = -1
-        self.last_applied = -1
-        self.state = NodeState.FOLLOWER
+        self.commit_index  = -1
+        self.last_applied  = -1
+        self.state         = NodeState.FOLLOWER
         self.current_leader: Optional[int] = None
 
-        # Leader state (réinitialisé à chaque élection)
-        self.next_index: dict[int, int] = {}
+        # Leader state (reinitialise a chaque election)
+        self.next_index:  dict[int, int] = {}
         self.match_index: dict[int, int] = {}
 
         # Timing
         self.election_timeout_range = election_timeout_range
-        self.last_heartbeat = time.time()
+        self.last_heartbeat  = time.time()
         self.election_timeout = self._random_election_timeout()
 
         # Metrics & event bus
-        self.metrics = RaftMetrics()
-        self._running = False
-        self._event_bus = None  # Sera injecté par le GUI server
+        self.metrics    = RaftMetrics()
+        self._running   = False
+        self._event_bus = None
 
-        # Chaos engine hook
-        self.chaos_delay_ms: float = 0.0
+        # Chaos engine hooks
+        self.chaos_delay_ms:  float = 0.0
         self.chaos_drop_rate: float = 0.0
 
     # ─────────────────────────────────────────────
@@ -108,9 +107,9 @@ class RaftNode:
         logger.info(f"[Raft {self.node_id}] Stopped")
 
     async def revive(self):
-        self.state = NodeState.FOLLOWER
+        self.state        = NodeState.FOLLOWER
         self.last_heartbeat = time.time()
-        self._running = True
+        self._running     = True
         asyncio.create_task(self._main_loop())
         logger.info(f"[Raft {self.node_id}] Revived")
 
@@ -122,7 +121,7 @@ class RaftNode:
         while self._running and self.state != NodeState.DEAD:
             if self.state == NodeState.LEADER:
                 await self._send_heartbeats()
-                await asyncio.sleep(0.05)  # Heartbeat every 50ms
+                await asyncio.sleep(0.05)
             else:
                 elapsed = time.time() - self.last_heartbeat
                 if elapsed * 1000 > self.election_timeout:
@@ -134,29 +133,28 @@ class RaftNode:
     # ─────────────────────────────────────────────
 
     async def _start_election(self):
-        self.state = NodeState.CANDIDATE
-        self.current_term += 1
-        self.voted_for = self.node_id
+        self.state            = NodeState.CANDIDATE
+        self.current_term    += 1
+        self.voted_for        = self.node_id
         self.election_timeout = self._random_election_timeout()
-        self.last_heartbeat = time.time()
+        self.last_heartbeat   = time.time()
         self.metrics.elections += 1
 
         logger.info(f"[Raft {self.node_id}] Starting election for term {self.current_term}")
         await self._emit_event("election_started", {
             "node_id": self.node_id,
-            "term": self.current_term
+            "term":    self.current_term
         })
 
-        votes = 1  # Vote pour soi-même
+        votes          = 1
         last_log_index = len(self.log) - 1
-        last_log_term = self.log[-1].term if self.log else 0
+        last_log_term  = self.log[-1].term if self.log else 0
 
         tasks = [
             self._request_vote(peer, last_log_index, last_log_term)
             for peer in self.peers
             if peer.node_id != self.node_id
         ]
-
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
@@ -169,9 +167,12 @@ class RaftNode:
             await self._become_leader()
         else:
             self.state = NodeState.FOLLOWER
-            logger.info(f"[Raft {self.node_id}] Election lost ({votes}/{len(self.peers)} votes)")
+            logger.info(
+                f"[Raft {self.node_id}] Election lost ({votes}/{len(self.peers)} votes)"
+            )
 
-    async def _request_vote(self, peer: "RaftNode", last_log_index: int, last_log_term: int) -> dict:
+    async def _request_vote(self, peer: "RaftNode",
+                            last_log_index: int, last_log_term: int) -> dict:
         if not await self._can_send(peer):
             return {"vote_granted": False}
 
@@ -181,10 +182,10 @@ class RaftNode:
             return {"vote_granted": False}
 
         return await peer.handle_vote_request({
-            "term": self.current_term,
-            "candidate_id": self.node_id,
+            "term":           self.current_term,
+            "candidate_id":   self.node_id,
             "last_log_index": last_log_index,
-            "last_log_term": last_log_term
+            "last_log_term":  last_log_term,
         })
 
     async def handle_vote_request(self, request: dict) -> dict:
@@ -192,50 +193,52 @@ class RaftNode:
             return {"term": self.current_term, "vote_granted": False}
 
         self.metrics.messages_received += 1
-        term = request["term"]
+        term         = request["term"]
         candidate_id = request["candidate_id"]
 
         if term > self.current_term:
             self.current_term = term
-            self.state = NodeState.FOLLOWER
-            self.voted_for = None
+            self.state        = NodeState.FOLLOWER
+            self.voted_for    = None
 
         if term < self.current_term:
             return {"term": self.current_term, "vote_granted": False}
 
         last_log_index = request["last_log_index"]
-        last_log_term = request["last_log_term"]
-        my_last_index = len(self.log) - 1
-        my_last_term = self.log[-1].term if self.log else 0
+        last_log_term  = request["last_log_term"]
+        my_last_index  = len(self.log) - 1
+        my_last_term   = self.log[-1].term if self.log else 0
 
         log_ok = (last_log_term > my_last_term) or \
                  (last_log_term == my_last_term and last_log_index >= my_last_index)
 
         if (self.voted_for is None or self.voted_for == candidate_id) and log_ok:
-            self.voted_for = candidate_id
+            self.voted_for    = candidate_id
             self.last_heartbeat = time.time()
             await self._emit_event("vote_sent", {
                 "from": self.node_id,
-                "to": candidate_id,
-                "term": term
+                "to":   candidate_id,
+                "term": term,
             })
             return {"term": self.current_term, "vote_granted": True}
 
         return {"term": self.current_term, "vote_granted": False}
 
     async def _become_leader(self):
-        self.state = NodeState.LEADER
+        self.state          = NodeState.LEADER
         self.current_leader = self.node_id
         self.metrics.leader_changes += 1
 
         for peer in self.peers:
-            self.next_index[peer.node_id] = len(self.log)
+            self.next_index[peer.node_id]  = len(self.log)
             self.match_index[peer.node_id] = -1
 
-        logger.info(f"[Raft {self.node_id}] Became LEADER for term {self.current_term} 🎉")
+        logger.info(
+            f"[Raft {self.node_id}] Became LEADER for term {self.current_term}"
+        )
         await self._emit_event("leader_elected", {
             "node_id": self.node_id,
-            "term": self.current_term
+            "term":    self.current_term,
         })
 
     # ─────────────────────────────────────────────
@@ -256,31 +259,34 @@ class RaftNode:
         if peer.state == NodeState.DEAD:
             return
 
-        next_idx = self.next_index.get(peer.node_id, len(self.log))
+        next_idx       = self.next_index.get(peer.node_id, len(self.log))
         prev_log_index = next_idx - 1
-        prev_log_term = self.log[prev_log_index].term if prev_log_index >= 0 and self.log else 0
+        prev_log_term  = (
+            self.log[prev_log_index].term
+            if prev_log_index >= 0 and self.log else 0
+        )
         entries = self.log[next_idx:]
 
         self.metrics.messages_sent += 1
         result = await peer.handle_append_entries({
-            "term": self.current_term,
-            "leader_id": self.node_id,
+            "term":           self.current_term,
+            "leader_id":      self.node_id,
             "prev_log_index": prev_log_index,
-            "prev_log_term": prev_log_term,
-            "entries": [asdict(e) for e in entries],
-            "leader_commit": self.commit_index
+            "prev_log_term":  prev_log_term,
+            "entries":        [asdict(e) for e in entries],
+            "leader_commit":  self.commit_index,
         })
 
         if result.get("success"):
             if entries:
-                self.next_index[peer.node_id] = next_idx + len(entries)
+                self.next_index[peer.node_id]  = next_idx + len(entries)
                 self.match_index[peer.node_id] = self.next_index[peer.node_id] - 1
                 await self._update_commit_index()
         else:
             if result.get("term", 0) > self.current_term:
                 self.current_term = result["term"]
-                self.state = NodeState.FOLLOWER
-                self.voted_for = None
+                self.state        = NodeState.FOLLOWER
+                self.voted_for    = None
             else:
                 self.next_index[peer.node_id] = max(0, next_idx - 1)
 
@@ -294,13 +300,13 @@ class RaftNode:
         if term < self.current_term:
             return {"term": self.current_term, "success": False}
 
-        self.current_term = term
-        self.state = NodeState.FOLLOWER
+        self.current_term   = term
+        self.state          = NodeState.FOLLOWER
         self.current_leader = request["leader_id"]
         self.last_heartbeat = time.time()
 
         prev_log_index = request["prev_log_index"]
-        prev_log_term = request["prev_log_term"]
+        prev_log_term  = request["prev_log_term"]
 
         if prev_log_index >= 0:
             if prev_log_index >= len(self.log):
@@ -309,11 +315,10 @@ class RaftNode:
                 self.log = self.log[:prev_log_index]
                 return {"term": self.current_term, "success": False}
 
-        # Append new entries
         entries = request.get("entries", [])
         for entry_dict in entries:
             entry = LogEntry(**entry_dict)
-            idx = entry.index
+            idx   = entry.index
             if idx < len(self.log):
                 if self.log[idx].term != entry.term:
                     self.log = self.log[:idx]
@@ -321,7 +326,6 @@ class RaftNode:
             else:
                 self.log.append(entry)
 
-        # Update commit index
         leader_commit = request.get("leader_commit", -1)
         if leader_commit > self.commit_index:
             self.commit_index = min(leader_commit, len(self.log) - 1)
@@ -329,8 +333,8 @@ class RaftNode:
 
         await self._emit_event("heartbeat_received", {
             "node_id": self.node_id,
-            "from": request["leader_id"],
-            "entries": len(entries)
+            "from":    request["leader_id"],
+            "entries": len(entries),
         })
 
         return {"term": self.current_term, "success": True}
@@ -340,23 +344,21 @@ class RaftNode:
     # ─────────────────────────────────────────────
 
     async def client_request(self, command: str, value=None) -> dict:
-        """
-        Interface client : soumettre une commande au cluster.
-        Retourne {"success": bool, "latency_ms": float}
-        """
         if self.state != NodeState.LEADER:
-            return {"success": False, "error": "not_leader", "leader": self.current_leader}
+            return {
+                "success": False,
+                "error":   "not_leader",
+                "leader":  self.current_leader,
+            }
 
         start = time.time()
         entry = LogEntry(
             term=self.current_term,
             index=len(self.log),
             command=command,
-            value=value
+            value=value,
         )
         self.log.append(entry)
-
-        # Attendre la réplication sur la majorité
         await self._replicate_and_commit(entry)
 
         latency = (time.time() - start) * 1000
@@ -366,11 +368,10 @@ class RaftNode:
         return {"success": True, "latency_ms": round(latency, 2), "index": entry.index}
 
     async def _replicate_and_commit(self, entry: LogEntry):
-        """Réplique l'entrée et attend la confirmation de la majorité."""
-        for _ in range(20):  # max 2s d'attente
+        for _ in range(20):
             await self._send_heartbeats()
-            majority = (len(self.peers) // 2) + 1
-            confirmed = 1  # le leader lui-même
+            majority  = (len(self.peers) // 2) + 1
+            confirmed = 1
             for peer in self.peers:
                 if self.match_index.get(peer.node_id, -1) >= entry.index:
                     confirmed += 1
@@ -396,7 +397,9 @@ class RaftNode:
         while self.last_applied < self.commit_index:
             self.last_applied += 1
             entry = self.log[self.last_applied]
-            logger.debug(f"[Raft {self.node_id}] Applied: {entry.command}={entry.value}")
+            logger.debug(
+                f"[Raft {self.node_id}] Applied: {entry.command}={entry.value}"
+            )
 
     # ─────────────────────────────────────────────
     # HELPERS
@@ -407,7 +410,6 @@ class RaftNode:
         return random.uniform(lo, hi)
 
     async def _can_send(self, peer: "RaftNode") -> bool:
-        """Applique les contraintes du Chaos Engine."""
         if self.chaos_drop_rate > 0 and random.random() < self.chaos_drop_rate:
             return False
         if self.chaos_delay_ms > 0:
@@ -420,17 +422,17 @@ class RaftNode:
 
     def get_status(self) -> dict:
         return {
-            "node_id": self.node_id,
-            "state": self.state.value,
-            "term": self.current_term,
-            "leader": self.current_leader,
-            "log_length": len(self.log),
+            "node_id":      self.node_id,
+            "state":        self.state.value,
+            "term":         self.current_term,
+            "leader":       self.current_leader,
+            "log_length":   len(self.log),
             "commit_index": self.commit_index,
             "metrics": {
-                "elections": self.metrics.elections,
-                "commits": self.metrics.commits,
-                "avg_latency_ms": round(self.metrics.avg_latency(), 2),
-                "messages_sent": self.metrics.messages_sent,
+                "elections":        self.metrics.elections,
+                "commits":          self.metrics.commits,
+                "avg_latency_ms":   round(self.metrics.avg_latency(), 2),
+                "messages_sent":    self.metrics.messages_sent,
                 "messages_received": self.metrics.messages_received,
-            }
+            },
         }

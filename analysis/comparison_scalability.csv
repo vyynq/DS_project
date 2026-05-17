@@ -1,0 +1,8 @@
+scenario,algo,cluster_size,max_failures,throughput_rps,avg_latency_ms,p95_latency_ms,error_rate
+scalability,raft,3,1,19.71,0.29,0.43,0.0
+scalability,raft,5,2,19.75,0.5,0.73,0.0
+scalability,raft,7,3,19.73,0.56,0.72,0.0
+scalability,raft,9,4,19.73,0.69,0.84,0.0
+scalability,pbft,4,1,9.88,1.2,1.64,0.0
+scalability,pbft,7,2,9.88,3.38,4.03,0.0
+scalability,pbft,10,3,9.88,7.71,8.99,0.0

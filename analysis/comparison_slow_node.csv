@@ -1,0 +1,5 @@
+scenario,algo,slow_role,slow_delay_ms,slow_node_id,throughput_rps,avg_latency_ms,p95_latency_ms,error_rate
+slow_node,raft,follower,500,0,14.88,0.4,0.6,0.0
+slow_node,raft,leader,500,4,12.31,9.55,0.64,0.0833
+slow_node,pbft,follower,500,1,0.66,1504.43,1504.93,0.0
+slow_node,pbft,leader,500,0,0.66,1504.74,1505.26,0.0

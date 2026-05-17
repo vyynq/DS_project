@@ -1,0 +1,92 @@
+[
+  {
+    "scenario": "asymmetric",
+    "algo": "raft",
+    "delay_ms": 0,
+    "throughput_rps": 14.88,
+    "avg_latency_ms": 0.38,
+    "p95_latency_ms": 0.61,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "pbft",
+    "delay_ms": 0,
+    "throughput_rps": 14.76,
+    "avg_latency_ms": 1.02,
+    "p95_latency_ms": 1.34,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "raft",
+    "delay_ms": 50,
+    "throughput_rps": 14.89,
+    "avg_latency_ms": 0.39,
+    "p95_latency_ms": 0.44,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "pbft",
+    "delay_ms": 50,
+    "throughput_rps": 9.39,
+    "avg_latency_ms": 106.52,
+    "p95_latency_ms": 106.89,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "raft",
+    "delay_ms": 100,
+    "throughput_rps": 14.87,
+    "avg_latency_ms": 0.39,
+    "p95_latency_ms": 0.46,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "pbft",
+    "delay_ms": 100,
+    "throughput_rps": 4.71,
+    "avg_latency_ms": 212.1,
+    "p95_latency_ms": 212.9,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "raft",
+    "delay_ms": 200,
+    "throughput_rps": 14.88,
+    "avg_latency_ms": 0.38,
+    "p95_latency_ms": 0.47,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "pbft",
+    "delay_ms": 200,
+    "throughput_rps": 2.43,
+    "avg_latency_ms": 411.84,
+    "p95_latency_ms": 413.38,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "raft",
+    "delay_ms": 400,
+    "throughput_rps": 14.87,
+    "avg_latency_ms": 0.39,
+    "p95_latency_ms": 0.68,
+    "error_rate": 0.0
+  },
+  {
+    "scenario": "asymmetric",
+    "algo": "pbft",
+    "delay_ms": 400,
+    "throughput_rps": 1.23,
+    "avg_latency_ms": 810.04,
+    "p95_latency_ms": 813.14,
+    "error_rate": 0.0
+  }
+]
