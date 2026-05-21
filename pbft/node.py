@@ -1,6 +1,6 @@
 """
-PBFT NODE — Practical Byzantine Fault Tolerant Consensus
-=========================================================
+PBFT NODE — Practical Byzantine Fault Tolerant Consensus (Version Optimisée & Résiliente)
+=========================================================================================
 """
 
 import asyncio
@@ -58,16 +58,20 @@ class PBFTNode:
         self.state = PBFTNodeState.BYZANTINE if is_byzantine else PBFTNodeState.NORMAL
         self._running = False
 
-        # --- CORRECTION : MÉMOIRE LOCALE DU NOEUD ---
+        # Mémoire locale du nœud
         self.pre_prepare_log: dict[tuple, str] = {}    # (view, seq) -> digest
         self.requests_log: dict[tuple, dict] = {}      # (view, seq) -> requête originale
         self.prepare_log: dict[tuple, list[PBFTMessage]] = defaultdict(list)
         self.commit_log: dict[tuple, list[PBFTMessage]] = defaultdict(list)
         self.committed_requests: dict[int, dict] = {}  # seq -> request
 
+        # Garde-fous anti-spam pour éviter les doubles envois
+        self.prepare_sent: dict[tuple, bool] = defaultdict(bool)
+        self.commit_sent: dict[tuple, bool] = defaultdict(bool)
+
         self.view_change_votes: dict[int, set] = defaultdict(set)
         self.last_activity = time.time()
-        self.view_change_timeout = 15.0  # Augmenté pour éviter les paniques en benchmark
+        self.view_change_timeout = 15.0  
 
         self.metrics = PBFTMetrics()
         self._event_bus = None
@@ -105,9 +109,12 @@ class PBFTNode:
         seq = self._next_sequence()
         d = digest(request)
 
-        # Le primary stocke aussi son propre message
-        self.pre_prepare_log[(self.view, seq)] = d
-        self.requests_log[(self.view, seq)] = request
+        key = (self.view, seq)
+        self.pre_prepare_log[key] = d
+        self.requests_log[key] = request
+
+        # CORRECTION : Le primaire s'auto-enregistre un message Prepare pour valider son propre quorum plus tard
+        self.prepare_log[key].append(PBFTMessage("prepare", self.view, seq, d, self.node_id, fake=self.is_byzantine))
 
         pre_prepare_msg = PBFTMessage("pre_prepare", self.view, seq, d, self.node_id, request)
         await self._broadcast(pre_prepare_msg)
@@ -128,45 +135,71 @@ class PBFTNode:
 
         if msg.view != self.view: return
         
-        # --- CORRECTION : ENREGISTREMENT ---
-        self.pre_prepare_log[(msg.view, msg.sequence)] = msg.digest
+        key = (msg.view, msg.sequence)
+        self.pre_prepare_log[key] = msg.digest
         if msg.request:
-            self.requests_log[(msg.view, msg.sequence)] = msg.request
+            self.requests_log[key] = msg.request
 
-        my_digest = "FAKE_" + msg.digest if self.is_byzantine else msg.digest
-        prepare_msg = PBFTMessage("prepare", self.view, msg.sequence, my_digest, self.node_id, fake=self.is_byzantine)
-        await self._broadcast(prepare_msg)
+        # CORRECTION : Envoi unique à l'aide du flag prepare_sent
+        if not self.prepare_sent[key]:
+            self.prepare_sent[key] = True
+            my_digest = "FAKE_" + msg.digest if self.is_byzantine else msg.digest
+            prepare_msg = PBFTMessage("prepare", self.view, msg.sequence, my_digest, self.node_id, fake=self.is_byzantine)
+            
+            # CORRECTION CRUCIALE : Le nœud stocke son propre vote Prepare localement
+            self.prepare_log[key].append(prepare_msg)
+            
+            await self._broadcast(prepare_msg)
+            await self._check_prepare_quorum(msg.view, msg.sequence)
 
     async def handle_prepare(self, msg: PBFTMessage):
         if self.state == PBFTNodeState.DEAD or not await self._can_receive(): return
         self.metrics.messages_received += 1
         key = (msg.view, msg.sequence)
+        
+        # Éviter d'ajouter des doublons d'un même nœud
+        if any(m.node_id == msg.node_id for m in self.prepare_log[key]): return
+        
         self.prepare_log[key].append(msg)
+        await self._check_prepare_quorum(msg.view, msg.sequence)
 
+    async def _check_prepare_quorum(self, view: int, sequence: int):
+        key = (view, sequence)
         f = self._max_byzantine()
         target_digest = self._expected_digest(key)
-        
-        # On ne compte que les digests qui matchent celui du Pre-Prepare
+        if not target_digest: return
+
         valid_prepares = [m for m in self.prepare_log[key] if m.digest == target_digest and not m.fake]
 
-        if len(valid_prepares) >= 2 * f:
-            await self._send_commit(msg.view, msg.sequence, target_digest or msg.digest)
+        # Quorum de Prepare : 2f messages valides (le nôtre inclus)
+        if len(valid_prepares) >= 2 * f and not self.commit_sent[key]:
+            await self._send_commit(view, sequence, target_digest)
 
     async def handle_commit(self, msg: PBFTMessage):
         if self.state == PBFTNodeState.DEAD or not await self._can_receive(): return
         self.metrics.messages_received += 1
         key = (msg.view, msg.sequence)
+        
+        # Éviter d'ajouter des doublons d'un même nœud
+        if any(m.node_id == msg.node_id for m in self.commit_log[key]): return
+        
         self.commit_log[key].append(msg)
+        await self._check_commit_quorum(msg.view, msg.sequence)
 
+    async def _check_commit_quorum(self, view: int, sequence: int):
+        key = (view, sequence)
         f = self._max_byzantine()
         target_digest = self._expected_digest(key)
+        if not target_digest: return
+
         valid_commits = [m for m in self.commit_log[key] if m.digest == target_digest and not m.fake]
 
+        # Quorum de Commit : 2f + 1 messages valides (le nôtre inclus)
         if len(valid_commits) >= 2 * f + 1:
-            if msg.sequence not in self.committed_requests:
+            if sequence not in self.committed_requests:
                 req = self._find_request(key)
-                self.committed_requests[msg.sequence] = req or {"status": "ok"}
-                logger.info(f"[PBFT {self.node_id}] COMMITTED seq={msg.sequence}")
+                self.committed_requests[sequence] = req or {"status": "ok"}
+                logger.info(f"[PBFT {self.node_id}] COMMITTED seq={sequence}")
 
     def _expected_digest(self, key: tuple) -> Optional[str]:
         return self.pre_prepare_log.get(key)
@@ -184,20 +217,36 @@ class PBFTNode:
     async def _trigger_view_change(self):
         self.state = PBFTNodeState.VIEW_CHANGE
         new_view = self.view + 1
+        
+        # CORRECTION : Le nœud s'ajoute son propre vote pour le changement de vue
+        self.view_change_votes[new_view].add(self.node_id)
+        
         for peer in self.peers:
             if peer.node_id != self.node_id:
                 asyncio.create_task(peer.handle_view_change(self.node_id, new_view))
 
     async def handle_view_change(self, from_node: int, new_view: int):
+        if self.state == PBFTNodeState.DEAD: return
         self.view_change_votes[new_view].add(from_node)
+        
         if len(self.view_change_votes[new_view]) >= 2 * self._max_byzantine() + 1:
-            self.view = new_view
-            self.state = PBFTNodeState.NORMAL
-            self.last_activity = time.time()
+            if new_view > self.view:
+                self.view = new_view
+                self.state = PBFTNodeState.NORMAL
+                self.last_activity = time.time()
 
     async def _send_commit(self, view: int, sequence: int, msg_digest: str):
+        key = (view, sequence)
+        self.commit_sent[key] = True
+        
         my_digest = "FAKE_" + msg_digest if self.is_byzantine else msg_digest
-        await self._broadcast(PBFTMessage("commit", view, sequence, my_digest, self.node_id, fake=self.is_byzantine))
+        commit_msg = PBFTMessage("commit", view, sequence, my_digest, self.node_id, fake=self.is_byzantine)
+        
+        # CORRECTION CRUCIALE : Le nœud stocke son propre vote Commit localement
+        self.commit_log[key].append(commit_msg)
+        
+        await self._broadcast(commit_msg)
+        await self._check_commit_quorum(view, sequence)
 
     async def _broadcast(self, msg: PBFTMessage):
         for peer in self.peers:
@@ -213,7 +262,6 @@ class PBFTNode:
         while time.time() < deadline:
             if seq in self.committed_requests:
                 return True
-            # On passe de 0.1 à 0.01 pour vérifier plus souvent
             await asyncio.sleep(0.01) 
         return False
 
@@ -231,16 +279,12 @@ class PBFTNode:
 
     async def _can_send(self, peer) -> bool:
         import random
-        # Si on a défini un délai (ex: 50ms), on varie entre 25ms et 75ms
         if self.chaos_delay_ms > 0:
             jitter = random.uniform(0.5, 1.5)
             await asyncio.sleep((self.chaos_delay_ms * jitter) / 1000)
-        
-        # Simule une perte de paquets aléatoire (ex: 2% de perte)
         if self.chaos_drop_rate > 0:
             if random.random() < self.chaos_drop_rate:
                 return False
-                
         return True
 
     async def _can_receive(self) -> bool:
