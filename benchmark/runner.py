@@ -1,18 +1,18 @@
 """
 CHAOS ENGINE
 ============
-Injecteur de pannes controle et reproductible.
+Controlled and reproducible fault injection.
 
-Scenarios supportes :
-  - crash_node        : tue un noeud proprement
-  - revive_node       : ressuscite un noeud
-  - network_partition : isole des groupes de noeuds
-  - heal_partition    : repare la partition
-  - add_delay         : ajoute de la latence reseau
-  - set_byzantine     : rend un noeud PBFT malveillant
-  - leader_attack     : tue le leader Raft
-  - stress_test       : charge maximale pendant N secondes
-  - run_scenario      : execute un scenario scriptable
+Supported scenarios:
+  - crash_node        : stops a node cleanly
+  - revive_node       : restarts a stopped node
+  - network_partition : isolates groups of nodes
+  - heal_partition    : restores connectivity
+  - add_delay         : adds network latency
+  - set_byzantine     : marks a PBFT node as malicious
+  - leader_attack     : stops the Raft leader
+  - stress_test       : sends sustained load for N seconds
+  - run_scenario      : runs a scripted scenario
 """
 
 import asyncio
@@ -39,7 +39,7 @@ class ChaosEvent:
 
 class ChaosEngine:
     """
-    Moteur de chaos — injecte des pannes de facon scriptee et reproductible.
+    Fault injection engine for scripted and reproducible experiments.
 
     Usage:
         chaos = ChaosEngine(raft_nodes, pbft_nodes, event_bus)
@@ -52,7 +52,7 @@ class ChaosEngine:
         "leader_failure": [
             {"t": 0.0, "action": "log",            "msg": "=== Scenario : Leader Failure ==="},
             {"t": 1.0, "action": "leader_attack",   "target": "raft"},
-            {"t": 4.0, "action": "log",             "msg": "Nouveau leader elu, verification..."},
+            {"t": 4.0, "action": "log",             "msg": "New leader elected, verifying cluster health..."},
             {"t": 5.0, "action": "client_request",  "target": "raft", "op": "set", "val": 42},
         ],
         "network_partition": [
@@ -88,9 +88,7 @@ class ChaosEngine:
         self.history: list[ChaosEvent] = []
         self._partitions: dict = {"raft": [], "pbft": []}
 
-    # ─────────────────────────────────────────────
-    # INDIVIDUAL ACTIONS
-    # ─────────────────────────────────────────────
+    # Individual actions
 
     async def crash_node(self, target: str, node_id: int):
         node = self._get_node(target, node_id)
@@ -216,7 +214,7 @@ class ChaosEngine:
     async def stress_test(self, target: str, duration_s: float,
                           requests_per_second: int = 20):
         logger.info(
-            f"[Chaos] Stress test on {target} — "
+            f"[Chaos] Stress test on {target} - "
             f"{requests_per_second} rps for {duration_s}s"
         )
         await self._emit("stress_start", {"target": target, "rps": requests_per_second})
@@ -259,9 +257,7 @@ class ChaosEngine:
         await self._emit("stress_done", stats)
         return stats
 
-    # ─────────────────────────────────────────────
-    # SCRIPTABLE SCENARIOS
-    # ─────────────────────────────────────────────
+    # Scriptable scenarios
 
     async def run_scenario(self, name: str):
         script = self.BUILT_IN_SCENARIOS.get(name)
@@ -312,9 +308,7 @@ class ChaosEngine:
         logger.info(f"[Chaos] Scenario '{name}' completed")
         await self._emit("scenario_done", {"name": name})
 
-    # ─────────────────────────────────────────────
-    # HELPERS
-    # ─────────────────────────────────────────────
+    # Internal helpers
 
     def _get_node(self, target: str, node_id: int):
         if target == "raft":

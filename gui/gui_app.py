@@ -15,20 +15,20 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
 # =================================================================
-# DESIGN SYSTEM — CYBERPUNK ACCENTS / DARK DASHBOARD
+# DESIGN SYSTEM - DARK DASHBOARD
 # =================================================================
-BG_MAIN          = "#0B0F19"     # Fond principal ultra-sombre
-PANEL_BG         = "#131A26"     # Fond des cartes / panneaux
-BORDER_COLOR     = "#1F293D"     # Bordures discrètes
-TEXT_MAIN        = "#F1F5F9"     # Texte principal clair
-TEXT_MUTED       = "#64748B"     # Texte secondaire/légendes
+BG_MAIN          = "#0B0F19"     # Main dark background
+PANEL_BG         = "#131A26"     # Panel background
+BORDER_COLOR     = "#1F293D"     # Subtle borders
+TEXT_MAIN        = "#F1F5F9"     # Primary text
+TEXT_MUTED       = "#64748B"     # Secondary text and labels
 
-ACCENT_RAFT      = "#38BDF8"     # Cyan néon (CFT)
-ACCENT_PBFT      = "#F43F5E"     # Rose/Fuchsia néon (BFT)
+ACCENT_RAFT      = "#38BDF8"     # Raft accent color
+ACCENT_PBFT      = "#F43F5E"     # PBFT accent color
 GRID_COLOR       = "#1E293B"
 
 CONSOLE_BG       = "#070A10"
-CONSOLE_FG       = "#34D399"     # Vert émeraude pour les logs de succès
+CONSOLE_FG       = "#34D399"     # Console success log text
 
 FONT_FAMILY      = "Segoe UI"
 FONT_MONO        = "Consolas"
@@ -43,16 +43,16 @@ class RealTimeBenchmarkGUI:
 
         self.scenarios = ["LAN (local)", "WAN (microgrid)", "Cyber attack"]
         
-        # Initialisation à vide (0 partout)
+        # Start with empty metrics.
         self._clear_results()
         self.running = False
 
         self._setup_styles()
         self._build_interface()
         
-        # Initialisation FIXE des cases graphiques (Une seule fois au démarrage)
+        # Create fixed plot slots once at startup.
         self._init_matplotlib_plots()
-        self._draw_plots()  # Premier rendu à vide
+        self._draw_plots()  # Initial empty render.
 
     def _clear_results(self):
         self.results = {
@@ -63,7 +63,7 @@ class RealTimeBenchmarkGUI:
         }
 
     def _setup_styles(self):
-        # Configuration globale Matplotlib
+        # Global Matplotlib configuration.
         plt.rcParams.update({
             "font.family": "sans-serif",
             "font.sans-serif": [FONT_FAMILY, "Arial"],
@@ -76,7 +76,7 @@ class RealTimeBenchmarkGUI:
             "text.color": TEXT_MAIN
         })
 
-        # Style TTK pour harmoniser les widgets natifs
+        # TTK style configuration for native widgets.
         s = ttk.Style()
         s.theme_use("clam")
         s.configure(".", background=BG_MAIN, foreground=TEXT_MAIN)
@@ -91,7 +91,7 @@ class RealTimeBenchmarkGUI:
 
         tk.Label(header, text="CONSENSUS BENCHMARK", bg=PANEL_BG, fg=TEXT_MAIN, font=(FONT_FAMILY, 14, "bold")).pack(side=tk.LEFT, padx=25, pady=18)
         
-        self.status_label = tk.Label(header, text="║  ENGINE STATUS: IDLE", bg=PANEL_BG, fg=ACCENT_RAFT, font=(FONT_FAMILY, 9, "bold"))
+        self.status_label = tk.Label(header, text="ENGINE STATUS: IDLE", bg=PANEL_BG, fg=ACCENT_RAFT, font=(FONT_FAMILY, 9, "bold"))
         self.status_label.pack(side=tk.LEFT, padx=10, pady=22)
 
         # Main Layout split
@@ -113,7 +113,7 @@ class RealTimeBenchmarkGUI:
         p = tk.Frame(container, bg=PANEL_BG, padx=18, pady=18)
         p.pack(fill=tk.BOTH, expand=True)
 
-        # --- Section Paramètres ---
+        # Configuration controls.
         self._add_section_title(p, "CONFIGURATION CONTROLS")
 
         tk.Label(p, text="Select Scenario", bg=PANEL_BG, fg=TEXT_MUTED, font=(FONT_FAMILY, 9)).pack(anchor=tk.W, pady=(10, 2))
@@ -121,7 +121,7 @@ class RealTimeBenchmarkGUI:
         combo = ttk.Combobox(p, textvariable=self.scenario_var, values=self.scenarios + ["Run all scenarios"], state="readonly")
         combo.pack(fill=tk.X, pady=(0, 15))
 
-        # Slider Durée
+        # Duration slider.
         tk.Label(p, text="Simulation Steps (Seconds)", bg=PANEL_BG, fg=TEXT_MUTED, font=(FONT_FAMILY, 9)).pack(anchor=tk.W)
         row_dur = tk.Frame(p, bg=PANEL_BG)
         row_dur.pack(fill=tk.X, pady=(2, 15))
@@ -131,7 +131,7 @@ class RealTimeBenchmarkGUI:
         ttk.Scale(row_dur, from_=5, to=30, orient=tk.HORIZONTAL, variable=self.duration_var,
                   command=lambda v: self.lbl_dur.config(text=f"{int(float(v))}s")).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Slider Nœuds
+        # Node-count slider.
         tk.Label(p, text="Network Nodes Cluster (n)", bg=PANEL_BG, fg=TEXT_MUTED, font=(FONT_FAMILY, 9)).pack(anchor=tk.W)
         row_nodes = tk.Frame(p, bg=PANEL_BG)
         row_nodes.pack(fill=tk.X, pady=(2, 20))
@@ -141,11 +141,11 @@ class RealTimeBenchmarkGUI:
         ttk.Scale(row_nodes, from_=4, to=16, orient=tk.HORIZONTAL, variable=self.nodes_var,
                   command=lambda v: self.lbl_nodes.config(text=str(int(float(v))))).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Barre de progression discrète
+        # Progress indicator.
         self.progress = ttk.Progressbar(p, orient="horizontal", mode="determinate")
         self.progress.pack(fill=tk.X, pady=(10, 8))
 
-        # Bouton Lancement
+        # Simulation launch button.
         self.run_btn = tk.Button(
             p, text="START SIMULTANEOUS EXECUTION", bg=ACCENT_RAFT, fg=BG_MAIN,
             font=(FONT_FAMILY, 10, "bold"), relief="flat", bd=0, cursor="hand2",
@@ -154,18 +154,18 @@ class RealTimeBenchmarkGUI:
         )
         self.run_btn.pack(fill=tk.X, pady=(0, 20))
 
-        # --- Section Télémétrie en direct ---
+        # Live telemetry section.
         self._add_section_title(p, "MONITORING PROTOCOLS")
         
-        for color, name, complexity in [(ACCENT_RAFT, "RAFT (CFT)", "O(n) Message density"), (ACCENT_PBFT, "PBFT (BFT)", "O(n²) Message density")]:
+        for color, name, complexity in [(ACCENT_RAFT, "RAFT (CFT)", "O(n) Message density"), (ACCENT_PBFT, "PBFT (BFT)", "O(n^2) Message density")]:
             r = tk.Frame(p, bg=PANEL_BG, pady=5)
             r.pack(fill=tk.X)
             indicator = tk.Frame(r, bg=color, width=4, height=16)
             indicator.pack(side=tk.LEFT, padx=(0, 10))
             tk.Label(r, text=name, bg=PANEL_BG, fg=TEXT_MAIN, font=(FONT_FAMILY, 9, "bold")).pack(side=tk.LEFT)
-            tk.Label(r, text=f"  •  {complexity}", bg=PANEL_BG, fg=TEXT_MUTED, font=(FONT_FAMILY, 8, "italic")).pack(side=tk.LEFT)
+            tk.Label(r, text=f"  -  {complexity}", bg=PANEL_BG, fg=TEXT_MUTED, font=(FONT_FAMILY, 8, "italic")).pack(side=tk.LEFT)
 
-        # Terminal Log intégrateur
+        # Integrated terminal log.
         tk.Label(p, text="LIVE ENGINE TERMINAL", bg=PANEL_BG, fg=TEXT_MUTED, font=(FONT_FAMILY, 8, "bold")).pack(anchor=tk.W, pady=(20, 4))
         self.log_box = tk.Text(p, height=8, wrap=tk.WORD, font=(FONT_MONO, 8), bg=CONSOLE_BG, fg=CONSOLE_FG, bd=0, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=8)
         self.log_box.pack(fill=tk.BOTH, expand=True)
@@ -183,31 +183,31 @@ class RealTimeBenchmarkGUI:
         self.log_box.see(tk.END)
 
     # =================================================================
-    # INITIALISATION STRATEGIQUE DE MATPLOTLIB (ANTI-FLICKER / STATIC CASES)
+    # MATPLOTLIB INITIALIZATION
     # =================================================================
     def _init_matplotlib_plots(self):
-        # Création de la figure globale une seule fois
+        # Create the shared figure once.
         self.fig = plt.figure(figsize=(10.5, 7.0))
         self.fig.patch.set_facecolor(PANEL_BG)
 
-        # Définition de la grille fixe pour empêcher les mouvements de cases
+        # Use a fixed grid so plot positions remain stable.
         self.gs = gridspec.GridSpec(2, 2, left=0.07, right=0.96, top=0.93, bottom=0.12, hspace=0.38, wspace=0.24)
         self.axes = [self.fig.add_subplot(self.gs[row, col]) for row in range(2) for col in range(2)]
 
-        # Attachement permanent au frame Tkinter
+        # Attach the canvas to the Tkinter frame.
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     # =================================================================
-    # ENGINE COOPÉRATIF CORE (SIMULTANÉITÉ STRICTE)
+    # SIMULATION ENGINE
     # =================================================================
     def _launch_simulation(self):
         if self.running: return
         self.running = True
         self.run_btn.config(state=tk.DISABLED, bg=BORDER_COLOR)
-        self.status_label.config(text="║  ENGINE STATUS: RUNNING METRICS", fg=ACCENT_PBFT)
+        self.status_label.config(text="ENGINE STATUS: RUNNING METRICS", fg=ACCENT_PBFT)
 
-        # Remise à 0 pure des données avant itération
+        # Reset metrics before each run.
         self._clear_results()
         self._draw_plots()
 
@@ -246,7 +246,7 @@ class RealTimeBenchmarkGUI:
                 r_lat, p_lat = 40, 190
 
             for tick in range(1, duration + 1):
-                time.sleep(0.5)  # Légère accélération du pas de temps pour le dynamisme
+                time.sleep(0.5)  # Keep the demo responsive while preserving visible updates.
                 
                 network_noise = random.uniform(0.92, 1.08)
                 
@@ -259,7 +259,7 @@ class RealTimeBenchmarkGUI:
                 raft_msgs = 2 * (n_nodes - 1)
                 pbft_msgs = 2 * n_nodes * (n_nodes - 1)
 
-                # Écriture simultanée synchrone
+                # Update both protocol metrics for the current tick.
                 self.results[sc]["RAFT"] = {
                     "commits": raft_accumulated_commits,
                     "tps": current_raft_tps,
@@ -287,19 +287,19 @@ class RealTimeBenchmarkGUI:
     def _finalize_simulation(self):
         self.running = False
         self.run_btn.config(state=tk.NORMAL, bg=ACCENT_RAFT)
-        self.status_label.config(text="║  ENGINE STATUS: IDLE", fg=ACCENT_RAFT)
+        self.status_label.config(text="ENGINE STATUS: IDLE", fg=ACCENT_RAFT)
         self.progress.configure(value=0)
         self._log("All multi-threaded iterations successfully compiled.", is_system=True)
 
     # =================================================================
-    # RENDU SANS DESTRUCTION (RAFRAÎCHISSEMENT INTERNE DES AXES)
+    # STABLE PLOT RENDERING
     # =================================================================
     def _draw_plots(self):
         categories = self.scenarios
         x_indices = np.arange(len(categories))
         bar_width = 0.28
 
-        # Collecte des métriques en temps réel
+        # Collect live metrics.
         r_commits = [self.results[c]["RAFT"]["commits"] for c in categories]
         p_commits = [self.results[c]["PBFT"]["commits"] for c in categories]
         
@@ -319,9 +319,9 @@ class RealTimeBenchmarkGUI:
             ("ALGORITHMIC MESSAGE STRUCTURE", r_msgs, p_msgs, "Messages / Consensus Round", False)
         ]
 
-        # On boucle directement sur nos axes fixes
+        # Reuse the fixed axes for each refresh.
         for ax, (title, raft_data, pbft_data, y_lbl, invert_label) in zip(self.axes, plots_mapping):
-            ax.clear()  # On vide le graphe sans détruire l'emplacement (la case reste en place)
+            ax.clear()  # Clear the plot while keeping its fixed layout slot.
             
             bar_raft = ax.bar(x_indices - bar_width/2, raft_data, bar_width, label="RAFT", color=ACCENT_RAFT, alpha=0.9)
             bar_pbft = ax.bar(x_indices + bar_width/2, pbft_data, bar_width, label="PBFT", color=ACCENT_PBFT, alpha=0.9)
@@ -334,18 +334,18 @@ class RealTimeBenchmarkGUI:
             ax.yaxis.grid(True, linestyle="--", alpha=0.1)
             ax.set_axisbelow(True)
 
-            # Application stylisée des bordures cyberpunk plates
+            # Apply consistent border styling.
             for name, spine in ax.spines.items():
                 if name in ["top", "right", "left"]:
                     spine.set_visible(False)
                 else:
                     spine.set_color(BORDER_COLOR)
 
-            # Ajustement dynamique mais stable des limites y
+            # Keep y-axis limits stable while adapting to current values.
             max_val = max(max(raft_data), max(pbft_data))
             ax.set_ylim(0, 10 if max_val == 0 else max_val * 1.15)
 
-            # Écriture des valeurs en direct au-dessus des barres actives
+            # Display live values above active bars.
             for rect, val in list(zip(bar_raft, raft_data)) + list(zip(bar_pbft, pbft_data)):
                 if val == 0: continue
                 val_str = f"{val}" if isinstance(val, int) or val == int(val) else f"{val:.1f}"
@@ -353,10 +353,10 @@ class RealTimeBenchmarkGUI:
                         val_str, ha="center", va="bottom", fontsize=7, color=TEXT_MAIN, weight="semibold")
 
             if invert_label:
-                ax.text(0.98, 0.93, "Lower is optimal ▼", transform=ax.transAxes, ha="right", va="top",
+                ax.text(0.98, 0.93, "Lower is optimal", transform=ax.transAxes, ha="right", va="top",
                         fontsize=7, style="italic", color=TEXT_MUTED)
 
-        # Reset et mise à jour propre de la légende globale
+        # Rebuild the global legend.
         self.fig.legends = []
         proxies = [
             plt.Rectangle((0,0), 1, 1, facecolor=ACCENT_RAFT),
@@ -366,7 +366,7 @@ class RealTimeBenchmarkGUI:
                    loc="lower center", ncol=2, bbox_to_anchor=(0.5, 0.02),
                    fontsize=8.5, handlelength=1.0, frameon=False, labelcolor=TEXT_MAIN)
 
-        # Rafraîchissement direct de l'affichage existant
+        # Refresh the existing canvas.
         self.canvas.draw()
 
 # =================================================================

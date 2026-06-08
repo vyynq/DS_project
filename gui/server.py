@@ -1,8 +1,8 @@
 """
 EVENT BUS & WEBSOCKET SERVER
 =============================
-Pont entre le backend Python et la GUI JavaScript.
-Diffuse les événements en temps réel via WebSocket.
+Bridge between the Python backend and the JavaScript GUI.
+Broadcast live events through WebSocket.
 """
 
 import asyncio
@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 class EventBus:
     """
-    Bus d'événements central.
-    Collecte les événements de Raft, PBFT et Chaos Engine
-    et les diffuse aux clients WebSocket connectés.
+    Central event bus.
+    Collects events from Raft, PBFT, and the Chaos Engine and broadcasts
+    them to connected WebSocket clients.
     """
 
     def __init__(self, max_history: int = 500):
@@ -26,7 +26,7 @@ class EventBus:
         self._history: deque = deque(maxlen=max_history)
 
     async def emit(self, event_type: str, data: dict):
-        """Émet un événement vers tous les abonnés."""
+        """Emit an event to all subscribers."""
         event = {
             "type": event_type,
             "data": data,
@@ -45,7 +45,7 @@ class EventBus:
             self._subscribers.remove(q)
 
     def subscribe(self) -> asyncio.Queue:
-        """S'abonner aux événements. Retourne une queue."""
+        """Subscribe to events and return the subscriber queue."""
         q = asyncio.Queue(maxsize=200)
         self._subscribers.append(q)
         return q
@@ -60,10 +60,9 @@ class EventBus:
 
 class WebSocketServer:
     """
-    Serveur WebSocket minimal (sans dépendance externe lourde).
-    Utilise asyncio + websockets.
+    Minimal WebSocket server using asyncio and websockets.
 
-    Pour lancer : python gui/server.py
+    Run with: python gui/server.py
     """
 
     def __init__(self, event_bus: EventBus, host="localhost", port=8765):
@@ -80,10 +79,10 @@ class WebSocketServer:
         self._chaos_engine = chaos
 
     async def handler(self, websocket, path=None):
-        """Gère une connexion WebSocket cliente."""
+        """Handle one WebSocket client connection."""
         logger.info(f"[WS] Client connected from {websocket.remote_address}")
 
-        # Envoyer l'historique des événements récents
+        # Send recent event history.
         history = self.event_bus.get_history()[-50:]
         for event in history:
             try:
@@ -91,10 +90,10 @@ class WebSocketServer:
             except Exception:
                 break
 
-        # S'abonner aux nouveaux événements
+        # Subscribe to new events.
         queue = self.event_bus.subscribe()
 
-        # Lancer le listener pour les commandes entrantes
+        # Start the incoming command listener.
         recv_task = asyncio.create_task(self._receive_commands(websocket))
 
         try:
@@ -102,7 +101,7 @@ class WebSocketServer:
                 event = await asyncio.wait_for(queue.get(), timeout=30.0)
                 await websocket.send(json.dumps(event))
         except asyncio.TimeoutError:
-            # Ping pour garder la connexion vivante
+            # Send a ping to keep the connection alive.
             try:
                 await websocket.ping()
             except Exception:
@@ -114,7 +113,7 @@ class WebSocketServer:
             self.event_bus.unsubscribe(queue)
 
     async def _receive_commands(self, websocket):
-        """Reçoit les commandes de la GUI (boutons du Chaos Engine)."""
+        """Receive GUI commands from the Chaos Engine buttons."""
         try:
             async for message in websocket:
                 try:
@@ -126,7 +125,7 @@ class WebSocketServer:
             pass
 
     async def _handle_command(self, cmd: dict, websocket):
-        """Dispatch des commandes GUI vers le Chaos Engine."""
+        """Dispatch GUI commands to the Chaos Engine."""
         action = cmd.get("action")
         target = cmd.get("target", "raft")
         node_id = cmd.get("node_id")
@@ -187,7 +186,7 @@ class WebSocketServer:
             import websockets
             logger.info(f"[WS] Server starting on ws://{self.host}:{self.port}")
             async with websockets.serve(self.handler, self.host, self.port):
-                logger.info(f"[WS] ✅ WebSocket server running")
+                logger.info("[WS] WebSocket server running")
                 await asyncio.Future()
         except ImportError:
             logger.warning("[WS] 'websockets' package not installed. Run: pip install websockets")

@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class RPCManager:
-    """Simule une couche réseau asynchrone avec latence et pannes."""
+    """Simulate an asynchronous network layer with latency and failures."""
     def __init__(self, event_bus=None):
         self.nodes = {}
         self.event_bus = event_bus
@@ -16,21 +16,21 @@ class RPCManager:
         self.nodes[node_id] = node_instance
 
     async def send(self, from_id, to_id, method, args):
-        """Envoie un message RPC avec une simulation de délai réseau."""
+        """Send an RPC message with simulated network delay."""
         if to_id not in self.nodes:
             return None
         
-        # Simulation de la latence réseau
+        # Simulate network latency.
         delay = random.uniform(self.latency_min, self.latency_max)
         await asyncio.sleep(delay)
         
         target_node = self.nodes[to_id]
         
-        # Vérification si le nœud destinataire est "vivant"
+        # Check whether the target node is alive.
         if hasattr(target_node, 'state') and target_node.state.value == "dead":
             return None
 
-        # Appel de la méthode sur le nœud distant
+        # Call the requested method on the remote node.
         func = getattr(target_node, method, None)
         if func:
             if asyncio.iscoroutinefunction(func):

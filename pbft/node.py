@@ -1,6 +1,6 @@
 """
-PBFT NODE — Practical Byzantine Fault Tolerant Consensus (Version Optimisée & Résiliente)
-=========================================================================================
+PBFT NODE - Practical Byzantine Fault Tolerant Consensus
+========================================================
 """
 
 import asyncio
@@ -58,14 +58,14 @@ class PBFTNode:
         self.state = PBFTNodeState.BYZANTINE if is_byzantine else PBFTNodeState.NORMAL
         self._running = False
 
-        # Mémoire locale du nœud
+        # Local node state.
         self.pre_prepare_log: dict[tuple, str] = {}    # (view, seq) -> digest
-        self.requests_log: dict[tuple, dict] = {}      # (view, seq) -> requête originale
+        self.requests_log: dict[tuple, dict] = {}      # (view, seq) -> original request
         self.prepare_log: dict[tuple, list[PBFTMessage]] = defaultdict(list)
         self.commit_log: dict[tuple, list[PBFTMessage]] = defaultdict(list)
         self.committed_requests: dict[int, dict] = {}  # seq -> request
 
-        # Garde-fous anti-spam pour éviter les doubles envois
+        # Prevent duplicate prepare and commit broadcasts.
         self.prepare_sent: dict[tuple, bool] = defaultdict(bool)
         self.commit_sent: dict[tuple, bool] = defaultdict(bool)
 
@@ -113,7 +113,7 @@ class PBFTNode:
         self.pre_prepare_log[key] = d
         self.requests_log[key] = request
 
-        # CORRECTION : Le primaire s'auto-enregistre un message Prepare pour valider son propre quorum plus tard
+        # The primary records its own Prepare vote for quorum validation.
         self.prepare_log[key].append(PBFTMessage("prepare", self.view, seq, d, self.node_id, fake=self.is_byzantine))
 
         pre_prepare_msg = PBFTMessage("pre_prepare", self.view, seq, d, self.node_id, request)
@@ -140,13 +140,13 @@ class PBFTNode:
         if msg.request:
             self.requests_log[key] = msg.request
 
-        # CORRECTION : Envoi unique à l'aide du flag prepare_sent
+        # Send Prepare only once for each consensus key.
         if not self.prepare_sent[key]:
             self.prepare_sent[key] = True
             my_digest = "FAKE_" + msg.digest if self.is_byzantine else msg.digest
             prepare_msg = PBFTMessage("prepare", self.view, msg.sequence, my_digest, self.node_id, fake=self.is_byzantine)
             
-            # CORRECTION CRUCIALE : Le nœud stocke son propre vote Prepare localement
+            # Store the node's own Prepare vote locally.
             self.prepare_log[key].append(prepare_msg)
             
             await self._broadcast(prepare_msg)
@@ -157,7 +157,7 @@ class PBFTNode:
         self.metrics.messages_received += 1
         key = (msg.view, msg.sequence)
         
-        # Éviter d'ajouter des doublons d'un même nœud
+        # Ignore duplicate Prepare messages from the same node.
         if any(m.node_id == msg.node_id for m in self.prepare_log[key]): return
         
         self.prepare_log[key].append(msg)
@@ -171,7 +171,7 @@ class PBFTNode:
 
         valid_prepares = [m for m in self.prepare_log[key] if m.digest == target_digest and not m.fake]
 
-        # Quorum de Prepare : 2f messages valides (le nôtre inclus)
+        # Prepare quorum: 2f valid messages, including the local vote.
         if len(valid_prepares) >= 2 * f and not self.commit_sent[key]:
             await self._send_commit(view, sequence, target_digest)
 
@@ -180,7 +180,7 @@ class PBFTNode:
         self.metrics.messages_received += 1
         key = (msg.view, msg.sequence)
         
-        # Éviter d'ajouter des doublons d'un même nœud
+        # Ignore duplicate Commit messages from the same node.
         if any(m.node_id == msg.node_id for m in self.commit_log[key]): return
         
         self.commit_log[key].append(msg)
@@ -194,7 +194,7 @@ class PBFTNode:
 
         valid_commits = [m for m in self.commit_log[key] if m.digest == target_digest and not m.fake]
 
-        # Quorum de Commit : 2f + 1 messages valides (le nôtre inclus)
+        # Commit quorum: 2f + 1 valid messages, including the local vote.
         if len(valid_commits) >= 2 * f + 1:
             if sequence not in self.committed_requests:
                 req = self._find_request(key)
@@ -218,7 +218,7 @@ class PBFTNode:
         self.state = PBFTNodeState.VIEW_CHANGE
         new_view = self.view + 1
         
-        # CORRECTION : Le nœud s'ajoute son propre vote pour le changement de vue
+        # Count the node's own vote during the view-change process.
         self.view_change_votes[new_view].add(self.node_id)
         
         for peer in self.peers:
@@ -242,7 +242,7 @@ class PBFTNode:
         my_digest = "FAKE_" + msg_digest if self.is_byzantine else msg_digest
         commit_msg = PBFTMessage("commit", view, sequence, my_digest, self.node_id, fake=self.is_byzantine)
         
-        # CORRECTION CRUCIALE : Le nœud stocke son propre vote Commit localement
+        # Store the node's own Commit vote locally.
         self.commit_log[key].append(commit_msg)
         
         await self._broadcast(commit_msg)

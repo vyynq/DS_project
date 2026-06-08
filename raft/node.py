@@ -1,10 +1,10 @@
 """
-RAFT NODE — Crash Fault Tolerant Consensus
+RAFT NODE - Crash Fault Tolerant Consensus
 ==========================================
-Implemente le protocole Raft complet :
+Implements the full Raft protocol:
   - Leader election via randomized timeouts
   - Log replication
-  - Safety (au plus 1 leader par term)
+  - Safety with at most one leader per term
 """
 
 import asyncio
@@ -50,12 +50,12 @@ class RaftMetrics:
 
 class RaftNode:
     """
-    Noeud Raft complet avec gestion des pannes et metriques.
+    Full Raft node with failure handling and metrics.
 
-    Parametres:
-        node_id                : identifiant unique (0, 1, 2, ...)
-        peers                  : liste de tous les noeuds du cluster
-        election_timeout_range : (min_ms, max_ms) pour le timeout aleatoire
+    Parameters:
+        node_id                : unique identifier (0, 1, 2, ...)
+        peers                  : all nodes in the cluster
+        election_timeout_range : (min_ms, max_ms) for the randomized timeout
     """
 
     def __init__(self, node_id: int, peers: list = None,
@@ -74,7 +74,7 @@ class RaftNode:
         self.state         = NodeState.FOLLOWER
         self.current_leader: Optional[int] = None
 
-        # Leader state (reinitialise a chaque election)
+        # Leader state, reinitialized on each election.
         self.next_index:  dict[int, int] = {}
         self.match_index: dict[int, int] = {}
 
@@ -92,9 +92,7 @@ class RaftNode:
         self.chaos_delay_ms:  float = 0.0
         self.chaos_drop_rate: float = 0.0
 
-    # ─────────────────────────────────────────────
-    # LIFECYCLE
-    # ─────────────────────────────────────────────
+    # Lifecycle
 
     async def start(self):
         self._running = True
@@ -113,9 +111,7 @@ class RaftNode:
         asyncio.create_task(self._main_loop())
         logger.info(f"[Raft {self.node_id}] Revived")
 
-    # ─────────────────────────────────────────────
-    # MAIN LOOP
-    # ─────────────────────────────────────────────
+    # Main loop
 
     async def _main_loop(self):
         while self._running and self.state != NodeState.DEAD:
@@ -128,9 +124,7 @@ class RaftNode:
                     await self._start_election()
                 await asyncio.sleep(0.01)
 
-    # ─────────────────────────────────────────────
-    # LEADER ELECTION
-    # ─────────────────────────────────────────────
+    # Leader election
 
     async def _start_election(self):
         self.state            = NodeState.CANDIDATE

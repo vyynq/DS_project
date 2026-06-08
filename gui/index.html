@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,7 +19,7 @@
         <h1 class="text-4xl font-bold text-blue-400">Consensus Visualizer</h1>
         <p class="text-slate-400 mt-2">Distributed Systems Project 2026 - Raft vs PBFT</p>
         <div id="ws-status" class="mt-4 inline-block px-4 py-1 rounded-full bg-red-900 text-red-200 text-sm">
-            🔴 Déconnecté du serveur
+            Disconnected from server
         </div>
     </header>
 
@@ -27,17 +27,17 @@
         <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
             <h2 class="text-2xl font-semibold mb-6 flex justify-between">
                 <span>Raft Cluster (CFT)</span>
-                <button onclick="sendRequest('raft')" class="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded">Envoyer Requête</button>
+                <button onclick="sendRequest('raft')" class="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded">Send Request</button>
             </h2>
             <div id="raft-nodes" class="flex justify-center gap-4 flex-wrap mb-8">
                 </div>
             
             <div class="border-t border-slate-700 pt-4">
-                <h3 class="text-slate-400 text-sm font-bold mb-2">💥 Chaos Engine (Raft)</h3>
+                <h3 class="text-slate-400 text-sm font-bold mb-2">Chaos Engine (Raft)</h3>
                 <div class="flex gap-2">
-                    <button onclick="chaosAction('crash', 'raft', 1)" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-500">Tuer Nœud 1</button>
-                    <button onclick="chaosAction('revive', 'raft', 1)" class="bg-green-600 px-3 py-1 rounded text-sm hover:bg-green-500">Ressusciter Nœud 1</button>
-                    <button onclick="chaosAction('leader_attack', 'raft')" class="bg-purple-600 px-3 py-1 rounded text-sm hover:bg-purple-500">Tuer le Leader</button>
+                    <button onclick="chaosAction('crash', 'raft', 1)" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-500">Stop Node 1</button>
+                    <button onclick="chaosAction('revive', 'raft', 1)" class="bg-green-600 px-3 py-1 rounded text-sm hover:bg-green-500">Restart Node 1</button>
+                    <button onclick="chaosAction('leader_attack', 'raft')" class="bg-purple-600 px-3 py-1 rounded text-sm hover:bg-purple-500">Stop Leader</button>
                 </div>
             </div>
         </div>
@@ -45,31 +45,31 @@
         <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
             <h2 class="text-2xl font-semibold mb-6 flex justify-between">
                 <span>PBFT Cluster (BFT)</span>
-                <button onclick="sendRequest('pbft')" class="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded">Envoyer Requête</button>
+                <button onclick="sendRequest('pbft')" class="text-sm bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded">Send Request</button>
             </h2>
             <div id="pbft-nodes" class="flex justify-center gap-4 flex-wrap mb-8">
                 </div>
 
             <div class="border-t border-slate-700 pt-4">
-                <h3 class="text-slate-400 text-sm font-bold mb-2">💥 Chaos Engine (PBFT)</h3>
+                <h3 class="text-slate-400 text-sm font-bold mb-2">Chaos Engine (PBFT)</h3>
                 <div class="flex gap-2 flex-wrap">
-                    <button onclick="chaosAction('crash', 'pbft', 0)" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-500">Tuer Primary (0)</button>
-                    <button onclick="chaosAction('revive', 'pbft', 0)" class="bg-green-600 px-3 py-1 rounded text-sm hover:bg-green-500">Ressusciter Primary</button>
-                    <button onclick="chaosAction('byzantine', 'pbft', 1)" class="bg-orange-600 px-3 py-1 rounded text-sm hover:bg-orange-500">Rendre Nœud 1 Byzantin 👹</button>
+                    <button onclick="chaosAction('crash', 'pbft', 0)" class="bg-red-600 px-3 py-1 rounded text-sm hover:bg-red-500">Stop Primary (0)</button>
+                    <button onclick="chaosAction('revive', 'pbft', 0)" class="bg-green-600 px-3 py-1 rounded text-sm hover:bg-green-500">Restart Primary</button>
+                    <button onclick="chaosAction('byzantine', 'pbft', 1)" class="bg-orange-600 px-3 py-1 rounded text-sm hover:bg-orange-500">Mark Node 1 Byzantine</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="mt-8 bg-slate-900 p-4 rounded-xl border border-slate-800 h-48 overflow-y-auto font-mono text-sm" id="logs">
-        <div class="text-slate-500">En attente des événements du cluster...</div>
+        <div class="text-slate-500">Waiting for cluster events...</div>
     </div>
 
     <script>
         let ws;
         const logsEl = document.getElementById('logs');
 
-        // Initialisation de l'affichage (5 Raft, 4 PBFT)
+        // Initialize the display with 5 Raft nodes and 4 PBFT nodes.
         function initNodes(target, count, colorClass) {
             const container = document.getElementById(`${target}-nodes`);
             container.innerHTML = '';
@@ -91,17 +91,17 @@
             
             ws.onopen = () => {
                 const status = document.getElementById('ws-status');
-                status.textContent = '🟢 Connecté (Live)';
+                status.textContent = 'Connected (Live)';
                 status.className = 'mt-4 inline-block px-4 py-1 rounded-full bg-green-900 text-green-200 text-sm';
-                logEvent('SYSTEM', 'Connecté au serveur WebSocket');
+                logEvent('SYSTEM', 'Connected to the WebSocket server');
                 
-                // Demander l'état initial des clusters
+                // Request the initial cluster state.
                 ws.send(JSON.stringify({action: "get_status"}));
             };
 
             ws.onclose = () => {
                 const status = document.getElementById('ws-status');
-                status.textContent = '🔴 Déconnecté. Reconnexion...';
+                status.textContent = 'Disconnected. Reconnecting...';
                 status.className = 'mt-4 inline-block px-4 py-1 rounded-full bg-red-900 text-red-200 text-sm';
                 setTimeout(connect, 2000);
             };
@@ -109,13 +109,13 @@
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 
-                // Handling Initial Status
+                // Handle the initial status payload.
                 if (msg.status) {
                     updateClusters(msg.status);
                     return;
                 }
 
-                // Handling Events
+                // Handle live events.
                 if(msg.type && msg.type !== "ping") {
                     handleEvent(msg.type, msg.data);
                 }
@@ -123,7 +123,7 @@
         }
 
         function updateClusters(status) {
-            // Mettre à jour l'UI avec l'état complet reçu du serveur
+            // Update the UI with the full server state.
             status.raft.forEach(n => {
                 const el = document.getElementById(`node-raft-${n.node_id}`);
                 const statEl = document.getElementById(`status-raft-${n.node_id}`);
@@ -172,7 +172,7 @@
                 document.getElementById(`status-${target}-${nodeId}`).innerText = "BYZANTINE";
             }
             if (type === "new_view" || type === "leader_elected") {
-                // Demander une mise à jour complète de l'UI pour redessiner les leaders
+                // Request a full UI refresh so leaders are redrawn consistently.
                 ws.send(JSON.stringify({action: "get_status"}));
             }
         }
@@ -182,7 +182,7 @@
             logsEl.innerHTML = `<div class="mb-1"><span class="text-slate-500">[${time}]</span> <span class="font-bold text-blue-300">${tag}</span> <span class="text-slate-300">${message}</span></div>` + logsEl.innerHTML;
         }
 
-        // GUI Interactions vers le serveur Python
+        // Send GUI actions to the Python server.
         function chaosAction(action, target, nodeId) {
             if(!ws || ws.readyState !== WebSocket.OPEN) return;
             ws.send(JSON.stringify({ action: action, target: target, node_id: nodeId }));

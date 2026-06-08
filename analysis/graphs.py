@@ -1,18 +1,17 @@
 """
-SAGEMATH ANALYSIS — Génération des graphes comparatifs
-=======================================================
-Charge les CSVs du benchmark runner et produit des graphes
-publication-ready pour le rapport.
+SAGEMATH ANALYSIS - Comparative Graph Generation
+================================================
+Load benchmark results and generate report-ready comparison graphs.
 
-Graphes générés :
+Generated graphs:
   1. Latency vs Load (Raft vs PBFT)
   2. Throughput vs Nodes
   3. Fault Tolerance Comparison
   4. Recovery Time Distribution
   5. Byzantine Impact on PBFT
-  6. Message Complexity (théorique)
+  6. Message Complexity (theoretical)
 
-USAGE (dans SageMath ou Jupyter) :
+USAGE (SageMath or Jupyter):
     load("analysis/graphs.sage")
     generate_all_graphs()
 """
@@ -21,7 +20,7 @@ import csv
 import json
 import os
 
-# ── SageMath imports (commenter si utilisé en Python pur) ──
+# SageMath imports. Matplotlib is used as a fallback in plain Python.
 try:
     from sage.all import *
     SAGE_AVAILABLE = True
@@ -39,15 +38,15 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-# ── Palette de couleurs du projet ──
-RAFT_COLOR  = "#2563EB"   # Bleu
-PBFT_COLOR  = "#7C3AED"   # Violet
-CHAOS_COLOR = "#DC2626"   # Rouge
+# Project color palette.
+RAFT_COLOR  = "#2563EB"   # Blue
+PBFT_COLOR  = "#7C3AED"   # Purple
+CHAOS_COLOR = "#DC2626"   # Red
 GRID_COLOR  = "#E5E7EB"
 
 
 def load_results(path="analysis/results.json"):
-    """Charge les résultats benchmark depuis JSON."""
+    """Load benchmark results from JSON."""
     if not os.path.exists(path):
         print(f"[Warning] {path} not found. Run the benchmark first.")
         return []
@@ -56,7 +55,7 @@ def load_results(path="analysis/results.json"):
 
 
 def filter_results(results, test=None, algo=None):
-    """Filtre les résultats par test et/ou algo."""
+    """Filter benchmark results by test and/or algorithm."""
     out = results
     if test:
         out = [r for r in out if r["test"] == test]
@@ -65,14 +64,11 @@ def filter_results(results, test=None, algo=None):
     return out
 
 
-# ─────────────────────────────────────────────
-# GRAPHE 1 : Latence vs Charge
-# ─────────────────────────────────────────────
+# Graph 1: latency vs load.
 
 def plot_latency_vs_load(results, out="analysis/graphs/latency_vs_load.png"):
     """
-    Compare la latence moyenne de Raft et PBFT en fonction
-    du nombre de requêtes/s envoyées.
+    Compare average Raft and PBFT latency as request load increases.
     """
     data = filter_results(results, test="throughput_vs_load")
 
@@ -121,12 +117,10 @@ def plot_latency_vs_load(results, out="analysis/graphs/latency_vs_load.png"):
         print(f"Saved: {out}")
 
 
-# ─────────────────────────────────────────────
-# GRAPHE 2 : Throughput comparatif
-# ─────────────────────────────────────────────
+# Graph 2: throughput comparison.
 
 def plot_throughput_comparison(results, out="analysis/graphs/throughput_comparison.png"):
-    """Barres comparatives du throughput Raft vs PBFT à différentes charges."""
+    """Plot comparative Raft and PBFT throughput bars at different loads."""
     data = filter_results(results, test="throughput_vs_load")
 
     loads = sorted(set(r["target_rps"] for r in data))
@@ -157,13 +151,11 @@ def plot_throughput_comparison(results, out="analysis/graphs/throughput_comparis
         print(f"Saved: {out}")
 
 
-# ─────────────────────────────────────────────
-# GRAPHE 3 : Fault Tolerance
-# ─────────────────────────────────────────────
+# Graph 3: fault tolerance.
 
 def plot_fault_tolerance(results, out="analysis/graphs/fault_tolerance.png"):
     """
-    Montre comment la performance dégrade avec le nombre de nœuds en panne.
+    Show how performance degrades as failed node count increases.
     """
     data = filter_results(results, test="fault_tolerance")
 
@@ -181,12 +173,12 @@ def plot_fault_tolerance(results, out="analysis/graphs/fault_tolerance.png"):
                 algo_data.sort()
                 fs, thrs = zip(*algo_data)
                 ax.bar(fs, thrs, color=color, alpha=0.85, width=0.5)
-                # Ligne théorique de dégradation attendue
+                # Expected theoretical degradation line.
                 if len(fs) > 1:
                     expected = [thrs[0] * (1 - 0.15 * f) for f in fs]
                     ax.plot(fs, expected, '--', color='gray', label='Expected degradation')
 
-            ax.set_title(f"{name} — Throughput vs Failures", fontsize=13, fontweight='bold')
+            ax.set_title(f"{name} - Throughput vs Failures", fontsize=13, fontweight='bold')
             ax.set_xlabel("Number of Failed Nodes (f)")
             ax.set_ylabel("Throughput (req/s)")
             ax.set_xticks([0, 1, 2])
@@ -199,12 +191,10 @@ def plot_fault_tolerance(results, out="analysis/graphs/fault_tolerance.png"):
         print(f"Saved: {out}")
 
 
-# ─────────────────────────────────────────────
-# GRAPHE 4 : Recovery Time
-# ─────────────────────────────────────────────
+# Graph 4: recovery time.
 
 def plot_recovery_time(results, out="analysis/graphs/recovery_time.png"):
-    """Compare le temps de recovery Raft (re-election) vs PBFT (view-change)."""
+    """Compare Raft recovery time through re-election with PBFT view-change time."""
     data = filter_results(results, test="recovery_time")
 
     raft_rt = next((r["avg_latency_ms"] for r in data if r["algo"] == "raft"), 0)
@@ -231,33 +221,31 @@ def plot_recovery_time(results, out="analysis/graphs/recovery_time.png"):
         print(f"Saved: {out}")
 
 
-# ─────────────────────────────────────────────
-# GRAPHE 5 : Message Complexity (Théorique)
-# ─────────────────────────────────────────────
+# Graph 5: message complexity.
 
 def plot_message_complexity(out="analysis/graphs/message_complexity.png"):
     """
-    Comparaison théorique de la complexité en messages.
+    Theoretical comparison of message complexity.
     Raft : O(n) par heartbeat / log entry
-    PBFT : O(n²) par request (3-phase protocol)
+    PBFT : O(n^2) per request (3-phase protocol)
     """
     ns = list(range(3, 20))
-    raft_msgs = [2 * n for n in ns]         # n messages par direction approx.
-    pbft_msgs = [3 * n * n for n in ns]     # 3-phases × n² approx.
+    raft_msgs = [2 * n for n in ns]         # Approximate n messages in each direction.
+    pbft_msgs = [3 * n * n for n in ns]     # Approximate 3-phase n^2 message pattern.
 
     if SAGE_AVAILABLE:
         raft_points = list(zip(ns, raft_msgs))
         pbft_points = list(zip(ns, pbft_msgs))
         p = (line(raft_points, color=RAFT_COLOR, thickness=2, legend_label="Raft O(n)") +
-             line(pbft_points, color=PBFT_COLOR, thickness=2, legend_label="PBFT O(n²)"))
+             line(pbft_points, color=PBFT_COLOR, thickness=2, legend_label="PBFT O(n^2)"))
         p.axes_labels(["Number of nodes (n)", "Messages per consensus round"])
         p.set_legend_options(loc="upper left")
         p.save(out, title="Message Complexity: Raft vs PBFT (Theoretical)", figsize=[8, 5])
 
     elif MATPLOTLIB_AVAILABLE:
         fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(ns, raft_msgs, '-o', color=RAFT_COLOR, label="Raft — O(n)", linewidth=2, markersize=4)
-        ax.plot(ns, pbft_msgs, '-s', color=PBFT_COLOR, label="PBFT — O(n²)", linewidth=2, markersize=4)
+        ax.plot(ns, raft_msgs, '-o', color=RAFT_COLOR, label="Raft - O(n)", linewidth=2, markersize=4)
+        ax.plot(ns, pbft_msgs, '-s', color=PBFT_COLOR, label="PBFT - O(n^2)", linewidth=2, markersize=4)
         ax.fill_between(ns, raft_msgs, pbft_msgs, alpha=0.08, color=PBFT_COLOR)
 
         ax.set_xlabel("Number of Nodes (n)", fontsize=12)
@@ -270,12 +258,10 @@ def plot_message_complexity(out="analysis/graphs/message_complexity.png"):
         print(f"Saved: {out}")
 
 
-# ─────────────────────────────────────────────
-# GRAPHE 6 : Byzantine Impact
-# ─────────────────────────────────────────────
+# Graph 6: Byzantine impact.
 
 def plot_byzantine_impact(results, out="analysis/graphs/byzantine_impact.png"):
-    """Impact du nombre de nœuds byzantins sur le throughput PBFT."""
+    """Plot the impact of Byzantine node count on PBFT throughput."""
     data = filter_results(results, test="byzantine_impact", algo="pbft")
 
     if not data:
@@ -309,17 +295,15 @@ def plot_byzantine_impact(results, out="analysis/graphs/byzantine_impact.png"):
         print(f"Saved: {out}")
 
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
+# Main entry point.
 
 def generate_all_graphs(results_path="analysis/results.json"):
-    """Génère tous les graphes en une seule commande."""
+    """Generate all graphs with one command."""
     results = load_results(results_path)
     if not results:
         print("No results found. Please run the benchmark first:")
         print("  python main.py --benchmark")
-        # Générer quand même les graphes théoriques
+        # Generate theoretical graphs even when benchmark results are missing.
         plot_message_complexity()
         return
 
@@ -333,7 +317,7 @@ def generate_all_graphs(results_path="analysis/results.json"):
     plot_message_complexity()
     plot_byzantine_impact(results)
 
-    print("\n✅ All graphs generated in analysis/graphs/")
+    print("\nAll graphs generated in analysis/graphs/")
 
 
 if __name__ == "__main__":

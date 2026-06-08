@@ -1,14 +1,14 @@
 """
-DEMO MODE — Timings lents pour presentation orale
-==================================================
-Memes algorithmes, delais visibles, commentaires terminal.
+DEMO MODE - Slow timings for oral presentation
+==============================================
+Same algorithms, visible delays, and terminal narration.
 
 Usage:
-    python demo.py                    # Demo guidee complete
-    python demo.py --step election    # Election Raft uniquement
-    python demo.py --step pbft        # Protocole PBFT uniquement
-    python demo.py --step chaos       # Pannes uniquement
-    python demo.py --step partition   # Partition reseau uniquement
+    python demo.py                    # Complete guided demo
+    python demo.py --step election    # Raft election only
+    python demo.py --step pbft        # PBFT protocol only
+    python demo.py --step chaos       # Failure handling only
+    python demo.py --step partition   # Network partition only
 """
 
 import asyncio
@@ -25,12 +25,12 @@ from pbft.node import PBFTNode, PBFTNodeState
 from chaos.engine import ChaosEngine
 from gui.server import EventBus
 
-# ── Terminal colors ──────────────────────────────────────
+# Terminal colors.
 RESET  = "\033[0m";  BOLD   = "\033[1m";  BLUE   = "\033[94m"
 PURPLE = "\033[95m"; YELLOW = "\033[93m"; GREEN  = "\033[92m"
 RED    = "\033[91m"; GRAY   = "\033[90m"; CYAN   = "\033[96m"
 
-# ── Helpers ──────────────────────────────────────────────
+# Helper functions.
 
 def header(text):
     print(f"\n{BOLD}{'='*56}\n  {text}\n{'='*56}{RESET}")
@@ -90,10 +90,10 @@ def print_cluster_state(raft_nodes, pbft_nodes=None):
     print()
 
 
-# ── Cluster factories ─────────────────────────────────────
+# Cluster factories.
 
 def create_slow_raft_cluster(event_bus):
-    """Cluster Raft avec timings lents (visible a l'oral)."""
+    """Create a Raft cluster with slow timings for live presentation."""
     nodes = {i: RaftNode(node_id=i, election_timeout_range=(3000, 5000))
              for i in range(5)}
     for node in nodes.values():
@@ -115,7 +115,7 @@ def create_slow_raft_cluster(event_bus):
 
 
 def create_slow_pbft_cluster(event_bus):
-    """Cluster PBFT avec timings lents."""
+    """Create a PBFT cluster with slow timings."""
     nodes = {i: PBFTNode(node_id=i) for i in range(4)}
     for node in nodes.values():
         node.peers               = list(nodes.values())
@@ -124,122 +124,122 @@ def create_slow_pbft_cluster(event_bus):
     return nodes
 
 
-# ── Demo steps ────────────────────────────────────────────
+# Demo steps.
 
 async def demo_election(raft_nodes, chaos):
-    section("ETAPE 1 — Demarrage et election du leader")
-    info("5 noeuds Raft demarres. Tous sont FOLLOWER.")
-    info("Chacun a un timeout aleatoire (3-5s). Le premier expire devient candidat.")
+    section("STEP 1 - Startup and leader election")
+    info("5 Raft nodes started. All are FOLLOWER.")
+    info("Each node has a random timeout (3-5s). The first expired timeout starts a candidacy.")
 
-    await pause(3.5, "Attente du premier timeout")
+    await pause(3.5, "Waiting for the first timeout")
 
     leader = chaos._find_raft_leader()
     if not leader:
-        await pause(2, "Toujours en attente")
+        await pause(2, "Still waiting")
         leader = chaos._find_raft_leader()
 
     if leader:
-        success(f"Node {leader.node_id} elu LEADER — term {leader.current_term}")
+        success(f"Node {leader.node_id} elected LEADER - term {leader.current_term}")
     else:
-        warning("Pas de leader encore")
+        warning("No leader yet")
 
     print_cluster_state(raft_nodes)
 
 
 async def demo_requests(raft_nodes, chaos):
-    section("ETAPE 2 — Replication du log")
+    section("STEP 2 - Log replication")
     leader = chaos._find_raft_leader()
     if not leader:
-        warning("Pas de leader, etape ignoree")
+        warning("No leader available, skipping this step")
         return
 
-    info(f"Envoi de 3 requetes au leader (Node {leader.node_id}).")
+    info(f"Sending 3 requests to the leader (Node {leader.node_id}).")
     for cmd, val in [("set", "x=10"), ("set", "y=20"), ("set", "z=30")]:
         await asyncio.sleep(1.5)
         event(f"Client -> Node {leader.node_id}: {cmd}({val})")
         result = await leader.client_request(cmd, val)
         if result.get("success"):
             success(
-                f"Commit en {result['latency_ms']:.0f}ms  "
+                f"Commit completed in {result['latency_ms']:.0f}ms  "
                 f"(index={result.get('index', '?')})"
             )
         else:
-            warning(f"Echec : {result.get('error')}")
+            warning(f"Failure: {result.get('error')}")
 
     print_cluster_state(raft_nodes)
 
 
 async def demo_leader_failure(raft_nodes, chaos):
-    section("ETAPE 3 — Panne du leader et re-election")
+    section("STEP 3 - Leader failure and re-election")
     leader = chaos._find_raft_leader()
     if not leader:
-        warning("Pas de leader, etape ignoree")
+        warning("No leader available, skipping this step")
         return
 
-    info(f"Arret du Node {leader.node_id} (leader actuel).")
-    info("Les followers detectent l'absence de heartbeats et declenchent une election.")
+    info(f"Stopping Node {leader.node_id}, the current leader.")
+    info("Followers detect the missing heartbeats and start a new election.")
 
-    chaos_action(f"CRASH — Node {leader.node_id} tue !")
+    chaos_action(f"CRASH - Node {leader.node_id} stopped")
     await chaos.crash_node("raft", leader.node_id)
     print_cluster_state(raft_nodes)
 
     t = time.time()
-    await pause(5, "Attente de la re-election")
+    await pause(5, "Waiting for re-election")
     new_leader = chaos._find_raft_leader()
 
     if new_leader:
         success(
-            f"Nouveau leader : Node {new_leader.node_id}  "
+            f"New leader: Node {new_leader.node_id}  "
             f"(term {new_leader.current_term})  "
-            f"recuperation en {(time.time()-t)*1000:.0f}ms"
+            f"recovery in {(time.time()-t)*1000:.0f}ms"
         )
         result = await new_leader.client_request("set", "recovery=ok")
         if result.get("success"):
-            success(f"Requete post-panne reussie en {result['latency_ms']:.0f}ms")
+            success(f"Post-failure request completed in {result['latency_ms']:.0f}ms")
     else:
-        warning("Aucun nouveau leader trouve")
+        warning("No new leader found")
 
     print_cluster_state(raft_nodes)
 
 
 async def demo_partition(raft_nodes, chaos):
-    section("ETAPE 4 — Partition reseau")
+    section("STEP 4 - Network partition")
     leader = chaos._find_raft_leader()
     if not leader:
         for node in raft_nodes.values():
             if node.state == NodeState.DEAD:
                 await chaos.revive_node("raft", node.node_id)
-        await pause(4, "Attente du leader")
+        await pause(4, "Waiting for leader")
 
-    info("Separation du cluster en deux groupes :")
-    info("  Groupe A : Nodes 0, 1   — minorite (2 noeuds)")
-    info("  Groupe B : Nodes 2,3,4  — majorite (3 noeuds)")
+    info("Splitting the cluster into two groups:")
+    info("  Group A: Nodes 0, 1    - minority (2 nodes)")
+    info("  Group B: Nodes 2,3,4   - majority (3 nodes)")
 
     await asyncio.sleep(1.5)
-    chaos_action("PARTITION — {0,1} isoles de {2,3,4}")
+    chaos_action("PARTITION - {0,1} isolated from {2,3,4}")
     await chaos.network_partition("raft", [0, 1], [2, 3, 4])
 
-    await pause(5, "Observation de la partition")
-    info("La majorite (B) peut encore elire un leader. La minorite (A) est bloquee — SAFETY respectee.")
+    await pause(5, "Observing the partition")
+    info("The majority group can still elect a leader. The minority group is blocked, preserving safety.")
     print_cluster_state(raft_nodes)
 
-    chaos_action("HEAL — Partition reparee !")
+    chaos_action("HEAL - Partition restored")
     await chaos.heal_partition("raft")
-    await pause(3, "Re-synchronisation du cluster")
-    success("Cluster re-synchronise automatiquement.")
+    await pause(3, "Cluster resynchronization")
+    success("Cluster resynchronized automatically.")
     print_cluster_state(raft_nodes)
 
 
 async def demo_pbft(pbft_nodes, chaos):
-    section("ETAPE 5 — PBFT : tolerance aux fautes byzantines")
+    section("STEP 5 - PBFT Byzantine fault tolerance")
     primary = chaos._find_pbft_primary()
-    info(f"Cluster PBFT de 4 noeuds, primary = Node {primary.node_id if primary else '?'}")
-    info("Tolerance : 1 faute byzantine (f=1, car n=3f+1=4)")
+    info(f"PBFT cluster with 4 nodes, primary = Node {primary.node_id if primary else '?'}")
+    info("Tolerance: 1 Byzantine fault (f=1, because n=3f+1=4)")
 
     if primary:
         result = await primary.client_request("transfer", 500)
         if result.get("success"):
-            event(f"transfer(500) commite en {result['latency_ms']:.0f}ms (3 phases)")
+            event(f"transfer(500) committed in {result['latency_ms']:.0f}ms (3 phases)")
 
     await asyncio.sleep(2)
 
@@ -249,11 +249,11 @@ async def demo_pbft(pbft_nodes, chaos):
         None
     )
     if not replica:
-        warning("Aucun replica disponible")
+        warning("No replica available")
         return
 
-    info(f"Rendre le Node {replica.node_id} BYZANTIN (envoi de faux digests).")
-    chaos_action(f"BYZANTINE — Node {replica.node_id} est maintenant malveillant !")
+    info(f"Marking Node {replica.node_id} as BYZANTINE so it sends invalid digests.")
+    chaos_action(f"BYZANTINE - Node {replica.node_id} is now malicious")
     await chaos.set_byzantine(replica.node_id)
     print_cluster_state(None, pbft_nodes)
 
@@ -261,19 +261,19 @@ async def demo_pbft(pbft_nodes, chaos):
     if primary:
         result = await primary.client_request("transfer", 1000)
         if result.get("success"):
-            success(f"Commit quand meme en {result['latency_ms']:.0f}ms !")
-            info("PBFT a ignore le faux digest. Il fallait 2f+1=3 COMMITs valides.")
+            success(f"Commit still completed in {result['latency_ms']:.0f}ms")
+            info("PBFT ignored the invalid digest. It required 2f+1=3 valid COMMIT messages.")
         else:
-            info("Timeout (attendu si le byzantin bloque trop de messages)")
+            info("Timeout, expected when the Byzantine node blocks too many messages.")
 
     print_cluster_state(None, pbft_nodes)
 
 
-# ── Main ──────────────────────────────────────────────────
+# Main entry point.
 
 async def run_full_demo(step=None):
-    header("CONSENSUS VISUALIZER — Demo")
-    print(f"  {GRAY}Raft vs PBFT — Systemes distribues 2026 — Timings lents{RESET}\n")
+    header("CONSENSUS VISUALIZER - Demo")
+    print(f"  {GRAY}Raft vs PBFT - Distributed Systems 2026 - Slow timings{RESET}\n")
 
     event_bus  = EventBus()
     raft_nodes = create_slow_raft_cluster(event_bus)
@@ -286,7 +286,7 @@ async def run_full_demo(step=None):
 
     for node in list(raft_nodes.values()) + list(pbft_nodes.values()):
         await node.start()
-    info("Clusters demarres. Tous les noeuds sont FOLLOWER.\n")
+    info("Clusters started. All nodes are FOLLOWER.\n")
 
     steps = {
         "election":  lambda: demo_election(raft_nodes, chaos),
@@ -303,18 +303,18 @@ async def run_full_demo(step=None):
             for name, fn in steps.items():
                 await fn()
                 if name != "pbft":
-                    input(f"\n  {GRAY}[ Appuyez sur Entree pour continuer ]{RESET}")
+                    input(f"\n  {GRAY}[ Press Enter to continue ]{RESET}")
     except KeyboardInterrupt:
         pass
 
-    header("Fin de la demo")
-    print(f"  {GREEN}Benchmark :{RESET}  python main.py --benchmark")
-    print(f"  {GREEN}Demo rapide:{RESET} python demo.py --step election\n")
+    header("End of demo")
+    print(f"  {GREEN}Benchmark:{RESET}  python main.py --benchmark")
+    print(f"  {GREEN}Quick demo:{RESET} python demo.py --step election\n")
 
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="Demo mode — timings lents pour presentation orale"
+        description="Demo mode - slow timings for oral presentation"
     )
     parser.add_argument(
         "--step",
@@ -328,4 +328,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nAu revoir !")
+        print("\nGoodbye.")
